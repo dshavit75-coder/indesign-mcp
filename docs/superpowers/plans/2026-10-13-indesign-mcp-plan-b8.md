@@ -1,10 +1,10 @@
 # InDesign MCP — Plan B8 Implementation Plan (Write Safety)
 
-**Status:** Plan only. Version 3.6 is approved in principle as documentation. **Not approved for implementation.** Each stage below starts only after explicit approval of that stage.
+**Status:** Plan only. Version 3.7 is approved in principle as documentation. **Not approved for implementation.** Each stage below starts only after explicit approval of that stage.
 
 **Goal:** Protect the user's documents from the integration tests, and protect existing files from being overwritten by `save_document` and `export_pdf`, without any mechanism that overwrites a file the server does not own.
 
-**Reference spec:** `docs/superpowers/specs/2026-10-13-indesign-mcp-plan-b8-safety-design.md` (section numbers below refer to it).
+**Reference spec:** `docs/superpowers/specs/2026-10-13-indesign-mcp-plan-b8-safety-design.md` v3.7 (section numbers below refer to it).
 
 **Tech stack:** TypeScript 5.9.3, Node 20+, MCP SDK (installed 1.32.1, Git lock 1.29.0), Zod, Vitest 2.1.9. No new runtime dependencies. No dependency changes.
 
@@ -21,6 +21,7 @@
 - The active `dist/` is not rebuilt until stage 9, after the merge, with separate approval.
 - Integration tests never run automatically. They require `INDESIGN_MCP_INTEGRATION=1` and an explicit command.
 - Stages 3 and 5 were removed in plan version 3.5; the numbering is kept so references do not change. Eight active stages: 0, 1, 2, 4, 6, 7, 8, 9.
+- The `_cod` suffix is a **file-naming convention only**. It does not constitute proof of ownership. Ownership is tracked via verified paths and the session that created the file (registry + fingerprint).
 
 ---
 
@@ -35,7 +36,7 @@
 ## Stage 1 — Spec and plan documents
 
 - **Files (new):** `docs/superpowers/specs/2026-10-13-indesign-mcp-plan-b8-safety-design.md`, `docs/superpowers/plans/2026-10-13-indesign-mcp-plan-b8.md`.
-- **Success:** the content matches plan version 3.6; neither document describes `COPYFILE_EXCL`, `fs.rename` for PDF, `overwrite: true` or any overwrite-approval mechanism as active; `git status` shows only these two files as new (plus the existing `M package-lock.json` and `?? CLAUDE.md`).
+- **Success:** the content matches plan version 3.7; neither document describes `COPYFILE_EXCL`, `fs.rename` for PDF, `overwrite: true` or any overwrite-approval mechanism as active; `git status` shows only these two files as new (plus the existing `M package-lock.json` and `?? CLAUDE.md`).
 - **Tests:** none.
 - **Risks:** a mismatch between these documents and the approved plan — checked by the user's review.
 - **Stop:** approval of the content, and of a commit if wanted.
@@ -43,7 +44,7 @@
 ## Stage 2 — Write-guard core (Node only)
 
 - **Files:** `src/write-guard.ts` (new), `src/types.ts`, `tests/unit/write-guard.test.ts` (new).
-- **What:** path gate and normalization; registry and states (`owned` / `pending` / `uncertain`); fingerprint; suggested name; the PDF publish function operating on a `.part` file already on disk; the INDD name-reservation function; `decideWrite()`, `assertWriteAllowed()` and `sendWriteScript()` (spec §3), with `sendWriteScript` receiving the send function as a parameter. **No InDesign, no tool code, no overwrite-approval mechanism.**
+- **What:** path gate and normalization; registry and states (`owned` / `pending` / `uncertain`); fingerprint; suggested name; **name computation layer** (pure function: computes `_cod` names for new-from-scratch, working copy, versioned snapshot and PDF export — see spec §2 subsection "Name computation"); the PDF publish function operating on a `.part` file already on disk; the INDD name-reservation function; `decideWrite()`, `assertWriteAllowed()` and `sendWriteScript()` (spec §3), with `sendWriteScript` receiving the send function as a parameter. **No InDesign, no tool code, no overwrite-approval mechanism.**
 - **Tests (unit only, files in `mkdtemp` directories only):**
   - The normalization spec (§2) — all 9 rules and examples; NFC/NFD; symlink as file name; `/var` vs `/private/var`.
   - Registry state transitions, and a mismatch in each of the five fingerprint fields.
@@ -58,7 +59,15 @@
     - **W4** — a `save_document` decision used by `export_pdf`, or a save-as decision used for an in-place save → refused.
     - **W5** — file changed between the decision and `assertWriteAllowed`: each of the five fields, replacement, deletion, symlink → `fingerprint_mismatch`, 0 sends.
     - **W6** — the path-A placeholder replaced or given content before sending → refused.
-- **Success:** all tests above exist and pass in `npm test`; `npx tsc --noEmit` clean; `git diff --stat` = 3 files; `src/write-guard.ts` imports neither `runScriptWithResultFile` nor `compose`, and does not read `process.env` (scan).
+  - **Name computation (N1–N6):**
+    - **N1** — new from scratch: `Wedding_Album` → `Wedding_Album_cod.indd`; `הזמנה` → `הזמנה_cod.indd`.
+    - **N2** — working copy: `Wedding_Album.indd` → `Wedding_Album_cod.indd` in same directory; source path returned unchanged.
+    - **N3** — idempotence: `Wedding_Album_cod` → `Wedding_Album_cod.indd` (no doubling); `Wedding_Album_cod.indd` → `Wedding_Album_cod.indd`.
+    - **N4** — versioned snapshot (explicit checkpoint only): v1 free → `_cod_v1.indd`; v1 taken → `_cod_v2.indd`; v99 taken → `version_limit_reached`.
+    - **N5** — PDF export: `Wedding_Album_cod.indd` → `Wedding_Album_cod.pdf`; `Wedding_Album_cod_v2.indd` → `Wedding_Album_cod_v2.pdf`.
+    - **N6** — name length: base name that would exceed 255 bytes after appending `_cod` → `name_truncated` warning returned alongside the truncated name.
+- **Note on versioned snapshots:** regular in-place saves of the working `_cod.indd` file use path B (no new file created). Only an explicit checkpoint request triggers a versioned snapshot (`_cod_vN.indd`) via path A. This prevents directories from filling with dozens of incremental saves.
+- **Success:** all tests above exist and pass in `npm test`; `npx tsc --noEmit` clean; `git diff --stat` = 3 files; `src/write-guard.ts` imports neither `runScriptWithResultFile` nor `compose`, and does not read `process.env` (scan); name computation function is pure (no I/O, no side effects, verifiable by grep).
 - **Not in this stage (stage 4):** P1, P7, P8, and the §5 rows that involve InDesign.
 - **Risks:** tests create and delete files in OS temporary directories only; macOS filesystem behaviour is verified only when the tests run on the user's machine.
 - **Stop:** `npm test` and `tsc` output to Claude.
@@ -85,6 +94,8 @@ The user-approval infrastructure left B8 together with the overwrite-approval me
   - **I9b** — in-place save on path B when the file on disk changed between the query and `sendWriteScript` (mocked filesystem): `fingerprint_mismatch`, no save script sent. This test does **not** cover a change after sending (spec §3).
   - **I10** — every write script of both tools goes through `sendWriteScript`: the mock sender receives only requests that passed `assertWriteAllowed`.
   - **I11** — calling a builder directly with a forged `WriteAllowed` (`as`) and sending → `write_not_authorized`, 0 sends.
+  - **I12** — `save_document` with a user-owned path: name computation derives a `_cod` working-copy name in the same directory; the original path is not passed to the gate; path C is never triggered for the source file.
+  - **I13** — `save_document` with an explicit checkpoint flag: name computation returns a `_cod_vN` path; path A is used; no existing version is overwritten.
 - **Additional tests:** on every refusal the number of write-script sends is 0; relative path → `invalid_args`; in-place save = two sends in the right order; expected values embedded via `lit()`.
 - **Success:** all tests above exist and pass; `npm test` and `npx tsc --noEmit` clean; the save and export builders accept only `WriteAllowed` (compile-time protection); `assertWriteAllowed` runs before every write-script send (I10, I11 — runtime protection); `git diff --stat` = 4 files.
 - **Risks:** an intended behaviour change — saves that worked until now will be refused. No effect on the running server, because `dist/` is not rebuilt.
@@ -131,7 +142,7 @@ To be filled in stage 7, before any edit (read-only).
 ## Stage 8 — Live integration and visual tests
 
 - **Files:** `tests/integration/safety.int.test.ts` (new).
-- **Order, every run started manually by the user:** L0 → L-R → L1a, L1b → L2 → L3–L6, L3b, L4b, L4c, C1, C2, C10 → L8, L9 → V2, V3.
+- **Order, every run started manually by the user:** L0 → L-R → L1a, L1b → L2 → L3–L6, L3-wc, L3-vs, L3b, L4b, L4c, C1, C2, C10 → L8, L9 → V2, V3.
 - **Success:** per the spec §7 tables; at the end of every passing run — zero open documents; the report records the installed SDK version.
 - **Risks:** labels, ids and saving over a placeholder are still UNVERIFIED. Any failure stops the sequence; do not continue after a failure.
 - **Stop:** after every run, output to Claude.
@@ -154,7 +165,7 @@ To be filled in stage 7, before any edit (read-only).
 | --- | --- | --- | --- |
 | `docs/superpowers/specs/2026-10-13-indesign-mcp-plan-b8-safety-design.md` | new | 1 | spec |
 | `docs/superpowers/plans/2026-10-13-indesign-mcp-plan-b8.md` | new | 1 | implementation plan |
-| `src/write-guard.ts` | new | 2 | path gate, ownership registry, decisions and runtime verification, PDF publish, name reservation |
+| `src/write-guard.ts` | new | 2 | path gate, ownership registry, decisions and runtime verification, PDF publish, name reservation, name computation (`computeAgentName`) |
 | `src/types.ts` | edit | 2 | `foreign_document_open`; fields `existing_path`, `suggested_path`, `reason` |
 | `tests/unit/write-guard.test.ts` | new | 2 | |
 | `src/tools/save-document.ts` | edit | 4 | gate, the three paths, path-C refusal |

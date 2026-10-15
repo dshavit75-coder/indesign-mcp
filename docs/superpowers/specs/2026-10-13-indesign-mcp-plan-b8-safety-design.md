@@ -1,7 +1,7 @@
 # InDesign MCP — Plan B8 Design Spec (Write Safety)
 
-**Date:** 2026-10-13 (revised 2026-10-14, plan version 3.6)
-**Status:** Plan only. Version 3.6 is approved in principle as documentation. **Not approved for implementation.** No code, dependency, `CLAUDE.md`, `dist/` or integration-test change is authorized by this document.
+**Date:** 2026-10-13 (revised 2026-10-15, plan version 3.7)
+**Status:** Plan only. Version 3.7 is approved in principle as documentation. **Not approved for implementation.** No code, dependency, `CLAUDE.md`, `dist/` or integration-test change is authorized by this document.
 **Parent specs:**
 - `docs/superpowers/specs/2026-05-05-indesign-mcp-design.md`
 - `docs/superpowers/specs/2026-05-06-indesign-mcp-plan-b7-design.md`
@@ -113,12 +113,29 @@ The user's documents carry neither label. A test document from an earlier run ca
 - `closeTestDocuments()` iterates `app.documents` and closes with `SaveOptions.NO` only a document whose id is in the list passed through `lit()` **and** whose `extractLabel("indesign-mcp-test") === runToken`. Returns closed / remaining lists.
 - `closeSimulatedForeignDocument(id)` closes one document only if the id matches **and** `indesign-mcp-test-foreign === runToken`.
 - A document that fails the conditions stays open, unsaved and unchanged, and its name is printed. There is no "close all" anywhere.
+- **Never close a document solely because its filename contains `_cod`.** Cleanup is based on id and label only.
 
 `Document.id`, `insertLabel` and `extractLabel` on a document: UNVERIFIED until L0.
 
-## 2. Paths and file ownership
+## 2. Paths, file naming, and ownership
 
-Every write request passes a path gate in Node, and only then an ownership decision. Any gate failure is a refusal before anything is sent to InDesign.
+Every write request passes through three layers in order: (a) name computation, (b) path gate, (c) ownership decision. A failure at any layer is a refusal before anything is sent to InDesign.
+
+### Agent file-naming convention (`_cod`)
+
+Every file created by the agent — whether from scratch or as a working copy of an existing file — receives the `_cod` suffix before the extension. This is a **naming convention only**, not proof of ownership. Ownership is always tracked by verified canonical paths and runtime/session metadata (§ Ownership registry).
+
+**Rules (applied in name computation, before the path gate):**
+
+1. **New document from scratch:** the caller supplies the desired base name (e.g. `Wedding_Album`). The agent computes `Wedding_Album_cod.indd` as the working file and passes this name to the path gate.
+2. **Working copy of an existing user file:** the caller supplies the source path (e.g. `~/Desktop/Wedding_Album.indd`). The agent derives `Wedding_Album_cod.indd` in the **same directory** as the source. The source file is never touched. The working copy is treated as a new INDD at a free name (path A) — it requires the source-path directory to be writable and `Wedding_Album_cod.indd` to be absent.
+3. **`_cod` is applied exactly once:** a file already ending in `_cod` (e.g. `Wedding_Album_cod.indd`) is not renamed to `Wedding_Album_cod_cod.indd`. The idempotence check strips any existing `_cod` suffix before appending, so the canonical form is always `<base>_cod.<ext>`.
+4. **Versioned snapshots:** when a snapshot is requested (explicitly by the user, or at a defined checkpoint), the agent computes `<base>_cod_v1.indd`, `<base>_cod_v2.indd`, … — never overwriting an existing versioned snapshot. The next free `vN` is found by sequential `lstat` from `v1` upwards; the agent stops after `v99` and returns `version_limit_reached`. Version numbers have no leading zeros.
+5. **PDF exports:** the same convention applies. An export from `Wedding_Album_cod.indd` produces `Wedding_Album_cod.pdf`; a versioned export produces `Wedding_Album_cod_v1.pdf`, etc. The PDF name is derived from the INDD working-file name, not from the source.
+6. **File name length:** the computed name (including `_cod` or `_cod_vN`) must be at most 255 UTF-8 bytes. If adding the suffix would exceed this, the base name is truncated before appending, and a warning `name_truncated` is included in the response.
+7. **Ownership is never inferred from `_cod`:** a file named `Foo_cod.indd` that the server did not create in the current session is treated as path C (not owned) — exactly like any other file. The suffix conveys intent to a human reader; it does not change the registry.
+
+**`_cod` suffix is a naming convention — not a safety mechanism.** The write guard, ownership registry, and fingerprint checks are the safety mechanisms. A file with a `_cod` name receives exactly the same gate and registry treatment as any other file.
 
 ### Path gate (save-as and export)
 
@@ -145,7 +162,37 @@ Every rule is covered by a unit test.
 6. **Parent directory:** `realpath(dirname)` must succeed and return a directory. Symlinks **in directories** are allowed and resolved (`/tmp` → `/private/tmp`).
 7. **Final path** = the directory after `realpath` + `/` + the file name as given. This is the path checked with `lstat`, sent to InDesign, and returned. Registry key = same directory + `/` + NFC(file name).
 8. **`lstat` of the final path:** missing → new; regular file → existing; symlink (including broken) → `symlink_target`; any other type → `not_regular_file`; error → `uncertain`.
-9. **Unit-test examples:** `~/Desktop/a.indd` accepted; `~/../x.indd`, `./a.indd`, `/Users/x//a.indd`, `~daniel/a.indd`, `/tmp/a.indd/` rejected; `/tmp/אלבום/הזמנה.indd` becomes `/private/tmp/אלבום/הזמנה.indd`; NFD and NFC names give the same key.
+9. **Unit-test examples:** `~/Desktop/a_cod.indd` accepted; `~/../x.indd`, `./a.indd`, `/Users/x//a.indd`, `~daniel/a.indd`, `/tmp/a.indd/` rejected; `/tmp/אלבום/הזמנה_cod.indd` becomes `/private/tmp/אלבום/הזמנה_cod.indd`; NFD and NFC names give the same key.
+
+### Name computation — exact specification
+
+Name computation runs **before** the path gate and produces the `path` argument passed to the gate. It is a pure function of the caller's intent, the source path (if any), and the filesystem state (lstat calls only, no writes).
+
+**New document from scratch:**
+- Input: desired base name (string, no path separator, no extension) and target directory.
+- Output: `<target_dir>/<base>_cod.indd` (with `_cod` idempotence: if `<base>` already ends with `_cod`, do not append again).
+- Passes to the path gate; the gate decides whether the name is free or taken.
+
+**Working copy of an existing file:**
+- Input: source path (an existing `.indd` file, validated by `lstat`).
+- Source base: strip the `.indd` extension from the file name; strip any trailing `_cod` (idempotence); append `_cod`.
+- Output: `<source_dir>/<source_base_without_ext>_cod.indd`.
+- The source file is read-only from the agent's perspective. The agent never passes the source path to `save_document`.
+
+**Versioned snapshot:**
+- Input: the current working-file path (`<base>_cod.indd`).
+- Base for snapshot: strip `_cod.indd`; compute `<base>_cod_v<N>.indd` for N = 1, 2, … 99 until `lstat` returns `ENOENT`.
+- If N reaches 99 and all exist: `version_limit_reached`, no write.
+- The snapshot is always a save-as (path A) to a new name; the working file (`_cod.indd`) is unchanged.
+
+**PDF export name:**
+- Input: the current working-file path or the versioned snapshot path.
+- Output: replace `.indd` extension with `.pdf` (same `_cod` or `_cod_vN` suffix already present).
+- Passes to the path gate for `export_pdf`.
+
+**Idempotence rule (applied in all cases):**
+- Strip trailing `_cod` from the stem before appending `_cod`. This means computing the agent name twice from the same source produces the same output.
+- Does not strip `_cod_vN` — a versioned snapshot is never the input to working-copy derivation.
 
 ### Ownership registry (`src/write-guard.ts`)
 
@@ -159,7 +206,8 @@ Every rule is covered by a unit test.
   - `document_mismatch` — a different document or tool;
   - `path_changed` — the document is now saved at a different path than recorded;
   - `uncertain` — state `pending` / `uncertain`, or an error in the gate.
-- **Suggested name:** `a.indd` → `a_v01.indd`; `_vNN` → the next free one. Checked with `lstat` at refusal time only; not stored.
+- **Suggested name:** applies the versioned-snapshot naming rule: `<base>_cod_v1.indd`, `<base>_cod_v2.indd`, … Checked with `lstat` at refusal time only; not stored.
+- **`_cod` in the suggested name:** the suggestion always follows the `_cod` convention regardless of whether the conflicting file has a `_cod` name.
 
 ### INDD files not registered as ours
 
@@ -176,8 +224,8 @@ Any INDD file not written by the server in the current process: a file that exis
 
 **Working with `name_collision`:**
 
-1. Claude shows `existing_path` and `suggested_path` and asks.
-2. Recommended: save-as to a `_vNN` copy (`save_document` with `path: suggested_path`). The original is untouched. From then on the open document points at the copy, the copy is registered as ours, and repeat saves to it work.
+1. Claude shows `existing_path` and `suggested_path` (a `_cod_vN` name) and asks.
+2. Recommended: save-as to the `_cod_vN` copy (`save_document` with `path: suggested_path`). The original is untouched. From then on the open document points at the copy, the copy is registered as ours, and repeat saves to it work.
 3. To update the original itself, the user saves manually in InDesign (Cmd+S). The server does not.
 4. Claude never tries to work around the refusal: no deleting, no renaming the existing file, no saving under another name without the user approving that name.
 
@@ -209,7 +257,7 @@ B8 has no path that overwrites an INDD or PDF file the server does not own. This
    - The `save_document` and `export_pdf` schemas are `.strict()` and contain neither `overwrite` nor `overwrite_confirmation_id`. A call with either → `invalid_args`, zero sends.
    - No tool and no code in `src/` reads an overwrite-enabling environment variable. Such a variable in the host configuration changes nothing.
    - No elicitation; the server neither requests nor accepts any approval.
-4. **The error message** states that the file exists and is not owned by the server, offers `suggested_path`, and says overwriting is possible only manually in InDesign.
+4. **The error message** states that the file exists and is not owned by the server, offers `suggested_path` (a `_cod_vN` name), and says overwriting is possible only manually in InDesign.
 5. **A repeat write to a server-owned INDD** (path B) is not an "approved overwrite" and needs no approval. It is allowed only when the record is `owned` and the fingerprint matches. Any deviation moves the file to path C.
 6. **Future:** any automatic overwrite mechanism will be defined in a separate plan with its own approval and tests. Nothing of it may be implemented before then.
 
@@ -245,8 +293,10 @@ The refusal is enforced at every write point in the code, before any write scrip
 
 | Entry point | What is checked, where | Sends before refusal | Unit test | Live test |
 | --- | --- | --- | --- | --- |
-| `save_document` with `path` (save-as) | path gate + `decideWrite()` in Node | 0 | I1–I3, I6, I8 | L3 |
+| `save_document` with `path` (save-as) | name computation → path gate + `decideWrite()` in Node | 0 | I1–I3, I6, I8, N1–N6 | L3 |
 | `save_document` without `path` (in-place) | read-only query (below), then path gate + `decideWrite()` on `fullName` | 1 read-only query | I4, I5, I7, I9a | L4, L4b, L4c |
+| Working copy requested | name computation derives `_cod` name → path A (source never touched) | 0 | N3 | L3-wc |
+| Versioned snapshot | name computation derives `_cod_vN` → path A | 0 | N4, N5 | L3-vs |
 | File changed outside the server | full fingerprint (`dev, ino, size, mtimeMs, ctimeMs`) → `fingerprint_mismatch` → path C | 0 (in-place: 1 query) | stage 2 + I3 | L3 |
 | Record `pending` / `uncertain` | → `uncertain` → path C | 0 / 1 | stage 2 | — (internal state) |
 | Bypass parameters (`overwrite`, `overwrite_confirmation_id`, any unknown field) | `.strict()` schema → `invalid_args` before the handler | 0 | I6 | L3 |
@@ -290,7 +340,7 @@ An existing PDF is never replaced. For INDD the race is narrowed only — **not 
 | Case | Mechanism | What stays open | Status |
 | --- | --- | --- | --- |
 | PDF to a free path | temporary file, basic sanity check, publish with `fs.link` (below). No fallback | nothing at the final name | required |
-| PDF to an existing path (including a PDF the server created) | refusal `pdf_replace_blocked` with `suggested_path`. No `rename`, no replacement | — | required |
+| PDF to an existing path (including a PDF the server created) | refusal `pdf_replace_blocked` with `suggested_path` (`_cod_vN.pdf`). No `rename`, no replacement | — | required |
 | New INDD (path A) | experimental name reservation (below) | depends on L-R-INDD | experimental |
 | Existing server-owned INDD (path B) | full fingerprint in Node at decision time and again immediately before sending; inside the script `File(path).exists` and `File.length` | replacement by a same-size file after sending is not detected (see §3, I9) | documented, not solved |
 | Existing INDD not owned (path C) | absolute refusal before any write | — | required |
@@ -419,21 +469,23 @@ Before every run: save real work and close all documents. When an open document 
 
 | # | What | Required result |
 | --- | --- | --- |
-| L0 | One file (`create-document.int.test.ts`), zero documents | passes; zero documents at the end; `Document.id` and labels verified |
+| L0 | One file (`create-document.int.test.ts`), zero documents | passes; zero documents at the end; `Document.id` and labels verified (including persistence after close+reopen) |
 | L-R | `safety.int.test.ts`, race part: INDD save over an empty placeholder (L-R-INDD); PDF publish via `fs.link`; `File.length` | decides the conditional rows of §4 |
 | L1a | Throwaway document open with unsaved text, full suite | stop before the first test |
 | L1b | Same, single file | same result |
 | L2 | Zero documents, full suite | all existing tests pass; zero documents at the end |
-| L3 | INDD save: save-as (path A) → repeat (path B, passes) → another document to the same path → `utimes` and external file replacement → symlink → relative path → call with `overwrite` / `overwrite_confirmation_id` | every path-C case and parameter is refused without a save script. On every refusal sha256, mtime and ctime are unchanged, and the symlink target is untouched |
+| L3 | INDD save: save-as (path A, `_cod` name) → repeat (path B, passes) → another document to the same path → `utimes` and external file replacement → symlink → relative path → call with `overwrite` / `overwrite_confirmation_id` | every path-C case and parameter is refused without a save script. On every refusal sha256, mtime and ctime are unchanged, and the symlink target is untouched |
+| L3-wc | Working copy: agent derives `source_cod.indd` from a source file, saves path A; source file untouched | `source_cod.indd` registered `owned`; source file sha256, mtime, ctime unchanged |
+| L3-vs | Versioned snapshot: `_cod.indd` → `_cod_v1.indd` (path A); second snapshot → `_cod_v2.indd`; attempt to re-snapshot `_cod_v1.indd` → `version_already_exists` | `_cod_v1` and `_cod_v2` registered `owned`; no overwrite |
 | L3b | Real foreign document (`test-probe`, foreign label) → tool call | `foreign_document_open`; tool body did not run; page count and content of the foreign document unchanged; `closeTestDocuments` does not close it |
 | L4 | In-place save of a test document saved by `test-probe` (unregistered, path C), after the test changed its text | `name_collision`; on disk — sha256, mtime and ctime unchanged; in InDesign — `modified` still `true` and the changed text still there (the query neither changed nor saved) |
 | L4b | In-place save of a document previously saved through `save_document` (path B) | success; fingerprint updated; an immediate second save also passes |
 | L4c | In-place save of a test document that was never saved | `io_error`; no file created; document unchanged |
-| L5 | Hebrew paths: `אלבום בר מצווה/הזמנה_v01.indd` and `.pdf` | same as English, suggestion `_v02` |
-| L6 | `export_pdf`: export to a free path passes; every export to an existing path (including a server-created PDF) → `pdf_replace_blocked`; path taken between check and publish → `EEXIST`; symlink and relative path refused | on every refusal the existing file is untouched |
+| L5 | Hebrew paths: `אלבום בר מצווה/הזמנה_cod.indd` and `הזמנה_cod.pdf` | same as English, versioned suggestion `הזמנה_cod_v1.indd` / `הזמנה_cod_v1.pdf` |
+| L6 | `export_pdf`: export to a free `_cod.pdf` path passes; every export to an existing path (including a server-created PDF) → `pdf_replace_blocked`; path taken between check and publish → `EEXIST`; symlink and relative path refused | on every refusal the existing file is untouched |
 | L8 | Manual: open a throwaway document during a full run | no write after detection; the document stays open and unchanged |
 | L9 | Manual: Ctrl+C mid-run, then another run | the second run stops and lists what remains; no document is closed |
-| L7 | After merge and an approved build: restart and save to a previously created file | `not_owned` |
+| L7 | After merge and an approved build: restart and save to a previously created `_cod` file | `not_owned` |
 
 LE (verifying an approval dialog in the host) was removed in plan version 3.5 together with the approval mechanism.
 
@@ -452,10 +504,14 @@ Unit tests run with mocks: they prove the gate's decisions, the order of sends a
 | I7 | never-saved document | L4c |
 | I8 | name taken between gate and `wx` | none — a race that cannot be reproduced reliably; unit only, documented |
 | I9a / I9b | I9a: document swapped in InDesign; I9b: file changed before sending | none — unit only. The on-disk race after sending has no test that could prove it; documented (§3, limitation 2) |
+| N1 | `_cod` idempotence: input already ending in `_cod` | unit only |
+| N2 | name truncation at 255 bytes | unit only |
+| N3 | working-copy derivation: source path → `_cod` name; source never in the write path | unit only; live: L3-wc |
+| N4 | versioned snapshot: N = 1 when none exist; N = 2 when v1 exists | unit only; live: L3-vs |
+| N5 | version_limit_reached at N = 99 | unit only |
+| N6 | `suggested_path` from `name_collision` always follows `_cod_vN` convention | unit only |
 
-**Added in plan version 3.6:** W1–W6 (stage 2), I9b, I10, I11 (stage 4), C6–C9 and the extended scans (stage 6) — all unit only. They prove decisions and refusal before sending, not InDesign behaviour. The only new live proof is C10 (check inside the fixture script), in stage 8, on test documents only.
-
-### Targeted cleanup tests
+### Targeting cleanup tests
 
 Cleanup closes only identified test documents, and a cleanup failure never leads to a broader close.
 
@@ -470,7 +526,7 @@ Cleanup closes only identified test documents, and a cleanup failure never leads
 | C2b | live | a document with a valid label whose id was removed from the list (`untrackForTest`) | not closed. After `trackForTest` the cleanup closes it. No other close path |
 | C3 | unit | the cleanup script returns an error (mock) | exactly one send; no retry, no other script; the test fails listing the remaining documents |
 | C4 | unit | empty id list | no script sent |
-| C5 | unit (code scan) | `helpers.ts` and the cleanup script body | no `documents[0]`, `activeDocument` or `closeAllDocuments`; every `close(` inside a condition comparing both id and label |
+| C5 | unit (code scan) | `helpers.ts` and the cleanup script body | no `documents[0]`, `activeDocument` or `closeAllDocuments`; every `close(` inside a condition comparing both id and label; no `close(` triggered solely by a `_cod` filename |
 | C6 | unit | `test-probe` or `test-cleanup` helper with a missing, wrong or other-run `runToken` | rejected; 0 sends |
 | C7 | unit | fixture save: path outside the run directory; via `..`; via a directory symlink pointing outside; existing file; wrong extension; unregistered document | rejected before sending; 0 sends |
 | C8 | unit | fixture script body | label check, `exists === false` and path-prefix check appear before `save` |
@@ -510,8 +566,8 @@ V1 (the approval dialog) was removed in plan version 3.5.
 1. **`activeDocument`.** 27 of the 29 tools (including save and export when no `document_id` is passed) work on the frontmost document. In normal use, a user document that is frontmost will be edited. The foreign-document guard runs in tests only. Fix — B9.
 2. **INDD save race (path B) — narrowed, not solved.** The fingerprint is checked at decision time and again immediately before sending (I9b), and the script checks document identity (I9a), existence and size. After sending, another process can replace the file at the same path with a same-size file, and InDesign will save over it. The existing interfaces offer no way to close this window (§3).
 3. **INDD name reservation** (path A) is experimental. If L-R-INDD fails, creating a new INDD relies on the in-script existence check only.
-4. **An existing PDF is never replaced**, including one the server created. Every further export is a new version (`_vNN`).
-5. **An INDD not owned by the server (path C) is never overwritten through the server.** Save a `_vNN` copy, or save the original manually in InDesign. B8 has no overwrite-approval mechanism.
+4. **An existing PDF is never replaced**, including one the server created. Every further export is a new version (`_cod_vN.pdf`).
+5. **An INDD not owned by the server (path C) is never overwritten through the server.** Save a `_cod_vN` copy, or save the original manually in InDesign. B8 has no overwrite-approval mechanism.
 6. A stat fingerprint is not a content hash.
 7. The registry is in memory only: after a restart every existing file is `not_owned` and goes to path C.
 8. After a crash an empty placeholder or a `.part` file may remain; delete manually.
@@ -524,6 +580,9 @@ V1 (the approval dialog) was removed in plan version 3.5.
 15. **`WriteAllowed` is compile-time protection only.** The runtime protection (`WeakSet`, single-use decision, `assertWriteAllowed`) works inside the server process. It protects against coding mistakes, not against malicious code running in the same process.
 16. **The static scan and the body check are pattern-based.** They catch known write forms but do not prove the absence of writes (e.g. a method name assembled from strings at runtime).
 17. **Unconditional recursive cleanup in existing tests — outside B8.** 12 existing test files (read-only grep, 2026-10-14) delete their `mkdtemp` directory with `rmSync(tmpDir, { recursive: true, force: true })` without verifying its contents. Until the follow-up task is done, a foreign file or symlink that ends up in such a directory is deleted with it. B8 does not change the cleanup code in those files and does not widen its scope because of them. The fix belongs to the follow-up task below.
+18. **`_cod` suffix is a naming convention only.** A file named with `_cod` that the server did not create in the current session is path C — refused, not assumed owned. After a server restart all `_cod` files become `not_owned`. There is no way to re-claim a `_cod` file without the user saving manually in InDesign and the agent creating a new working copy.
+19. **Version counter starts at v1 per session.** After a restart, version numbers restart from the next free N, not from a global counter. A directory may accumulate `_cod_v1`, `_cod_v2` from multiple sessions.
+20. **`version_limit_reached` at v99.** If 99 versioned snapshots exist in the directory, the agent stops and asks the user to clean up.
 
 Limitations 2 (file race after sending), 15 (malicious code in the same process) and 16 (pattern-based scanning) remain open after B8. The plan narrows them and does not claim they are solved.
 
@@ -555,7 +614,7 @@ Limitations 2 (file race after sending), 15 (malicious code in the same process)
 
 **Dependency:** starts only after the B8 merge and a separate approval.
 
-## 9. Working decisions (as of plan version 3.6)
+## 9. Working decisions (as of plan version 3.7)
 
 No open decisions other than implementation approval.
 
@@ -567,3 +626,7 @@ No open decisions other than implementation approval.
 | 4 | `package-lock.json` outside B8 | untouched; versions documented |
 | 5 | No fallback for `fs.link` | `pdf_publish_unsupported` |
 | 6 | Cleanup in the 12 existing test files stays outside B8 | limitation 17 and a follow-up task (§8); those files and B8's scope do not change |
+| 7 | `_cod` is a naming convention only, applied to every agent-created file | naming convention added in plan version 3.7 (§2); ownership always by registry and fingerprint |
+| 8 | Versioned snapshots use `_cod_vN` (no leading zeros, cap at v99) | suffix format and version-limit error defined in §2 |
+| 9 | Working copy derived from source: same directory, `_cod` suffix, source never in the write path | working-copy derivation defined in §2; source file never passed to `save_document` |
+| 10 | Cleanup never closes a document solely because its filename contains `_cod` | explicit rule in §1 narrow cleanup and C5 |

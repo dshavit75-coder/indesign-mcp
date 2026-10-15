@@ -59,6 +59,10 @@ export interface ToolError {
   stack?: string;
   entity?: string;
   id?: string;
+  // B8: write-guard fields
+  existing_path?: string;
+  suggested_path?: string;
+  reason?: WriteRefusalReason;
 }
 
 export type ErrorKind =
@@ -68,4 +72,25 @@ export type ErrorKind =
   | "name_collision"
   | "io_error"
   | "timeout"
-  | "invalid_args";
+  | "invalid_args"
+  | "foreign_document_open"   // B8: a foreign document is open when only owned ones are expected
+  | "pdf_replace_blocked"     // B8: export-pdf refused because target already exists
+  | "write_not_authorized";   // B8: assertWriteAllowed failed (forged/reused/mismatched decision)
+
+/**
+ * B8: Reason codes returned on name_collision and related refusals.
+ * These fields appear in ToolError.reason when kind === "name_collision"
+ * or kind === "write_not_authorized".
+ */
+export type WriteRefusalReason =
+  | "path_not_absolute"        // path gate: relative, bare ~, ~user, .. segment, null byte
+  | "wrong_extension"          // path gate: not .indd / .pdf
+  | "parent_missing"           // path gate: parent directory not found
+  | "symlink_target"           // path gate / lstat: path is a symlink
+  | "not_regular_file"         // path gate / lstat: path exists but is not a regular file
+  | "uncertain"                // any syscall error at the gate; also used for write-outcome uncertainty
+  | "not_owned"                // registry: no record of this path in this session
+  | "fingerprint_mismatch"     // registry: file changed externally (dev/ino/size/mtimeMs/ctimeMs)
+  | "document_mismatch"        // registry: different documentId or tool
+  | "path_changed"             // registry: document now at a different path than recorded
+  | "name_truncated";          // name computation: base name truncated to fit 255-byte limit

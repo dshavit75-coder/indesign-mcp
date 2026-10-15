@@ -39,15 +39,21 @@ describe("envelope helpers", () => {
       io_error: true,
       timeout: true,
       invalid_args: true,
+      foreign_document_open: true,   // B8
+      pdf_replace_blocked: true,     // B8
+      write_not_authorized: true,    // B8
     };
     expect(Object.keys(exhaustive).sort()).toEqual([
       "app_not_available",
+      "foreign_document_open",
       "invalid_args",
       "io_error",
       "name_collision",
       "not_found",
+      "pdf_replace_blocked",
       "script_error",
       "timeout",
+      "write_not_authorized",
     ]);
   });
 

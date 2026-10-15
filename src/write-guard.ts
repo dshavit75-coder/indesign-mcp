@@ -502,7 +502,7 @@ async function computeSuggestedNameIndd(existingPath: string): Promise<string> {
 
 export async function assertWriteAllowed(
   decision: WriteAllowed & WriteDecision,
-  request: { tool: string; documentId: DocumentId; finalPath: string; operation: WriteOperation }
+  request: { tool: string; documentId: DocumentId; finalPath: string; operation: WriteOperation; reservedFingerprint?: Fingerprint }
 ): Promise<{ ok: true } | { ok: false; kind: "write_not_authorized" | "name_collision"; reason: string; message: string }> {
   // a) Must be in the WeakSet (not forged)
   if (!authorizedDecisions.has(decision as object)) {
@@ -528,22 +528,16 @@ export async function assertWriteAllowed(
     try {
       st = lstatSync(decision.finalPath);
     } catch {
-      // File doesn't exist yet — for path A this is fine UNLESS it was a placeholder
-      // If no expectedFingerprint, the path-A file hasn't been created yet (pre-reservation)
-      if (!decision.expectedFingerprint) {
-        // No placeholder created yet: OK for pre-reservation check
-        usedDecisions.add(decision as object);
-        return { ok: true };
-      }
       return { ok: false, kind: "write_not_authorized", reason: "write_not_authorized", message: "path-A placeholder disappeared before send" };
     }
     if (!st.isFile() || st.size !== 0) {
       return { ok: false, kind: "write_not_authorized", reason: "write_not_authorized", message: "path-A placeholder was modified before send" };
     }
-    if (decision.expectedFingerprint) {
+    const fpToCheck = request.reservedFingerprint ?? decision.expectedFingerprint;
+    if (fpToCheck) {
       const fp = fingerprintFromStat(st);
-      if (!fingerprintEqual(fp, decision.expectedFingerprint)) {
-        return { ok: false, kind: "write_not_authorized", reason: "write_not_authorized", message: "path-A placeholder inode changed before send" };
+      if (!fingerprintEqual(fp, fpToCheck)) {
+        return { ok: false, kind: "write_not_authorized", reason: "write_not_authorized", message: "path-A placeholder inode changed before send (TOCTOU detected)" };
       }
     }
   } else if (decision.savePath === "B") {
@@ -588,6 +582,8 @@ export async function sendWriteScript<R>(
     documentId: DocumentId;
     finalPath: string;
     operation: WriteOperation;
+    /** For path A: fingerprint from reservePlaceholder, forwarded to assertWriteAllowed for inode verification. */
+    reservedFingerprint?: Fingerprint;
     scriptOpts: Parameters<SendFn<R>>[0];
   },
   sendFn: SendFn<R>
@@ -597,6 +593,7 @@ export async function sendWriteScript<R>(
     documentId: request.documentId,
     finalPath: request.finalPath,
     operation: request.operation,
+    reservedFingerprint: request.reservedFingerprint,
   });
   if (!assertResult.ok) {
     return assertResult;

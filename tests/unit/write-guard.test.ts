@@ -397,6 +397,8 @@ describe("assertWriteAllowed — W2: decision reused", () => {
     expect(dr.ok).toBe(true);
     if (!dr.ok) return;
     const decision = dr.decision;
+    // Create placeholder so path-A check passes (Stage A requires placeholder to exist)
+    reservePlaceholder(path);
     // First assert — consume it
     const r1 = await assertWriteAllowed(decision, { tool: "save_document", operation: "save-as", documentId: "doc1", finalPath: path });
     expect(r1.ok).toBe(true);
@@ -506,6 +508,8 @@ describe("sendWriteScript", () => {
     const dr = await decideWrite({ tool: "save_document", operation: "save-as", documentId: "doc1", path, expectedExtension: ".indd" });
     expect(dr.ok).toBe(true);
     if (!dr.ok) return;
+    // Create placeholder so path-A check passes (Stage A requires placeholder to exist)
+    reservePlaceholder(path);
     const sendFn = vi.fn().mockResolvedValue({ path });
     const r = await sendWriteScript(dr.decision, {
       tool: "save_document",

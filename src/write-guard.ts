@@ -18,6 +18,7 @@ import { lstatSync, openSync, closeSync, statSync, realpathSync } from "node:fs"
 import * as fs from "node:fs/promises";
 import { dirname, basename, extname } from "node:path";
 import type { DocumentId, WriteRefusalReason } from "./types.js";
+import { issueWriteCapability } from "./write-capability.js";
 
 // ---------------------------------------------------------------------------
 // 1. Branded type — compile-time protection only
@@ -572,8 +573,38 @@ export async function assertWriteAllowed(
 export type SendFn<R> = (opts: { scriptTemplate: string; [k: string]: unknown }) => Promise<R>;
 
 /**
+ * Regex-based advisory check: verifies the script body contains the expected
+ * InDesign API call for the approved operation.
+ *
+ * LIMITATION: regex matching only — does not catch dynamic calls such as
+ * doc["save"]() or variable dispatch. This is a sanity check, not a semantic
+ * proof. Stage 7 may add AST-based verification.
+ */
+function validateOperationBody(body: string, operation: WriteOperation): void {
+  const patterns: Record<WriteOperation, RegExp> = {
+    "save-as":       /saveAs\s*\(/,
+    "in-place-save": /\.save\s*\(/,
+    "export-pdf":    /exportFile\s*\(/,
+  };
+  if (!patterns[operation].test(body)) {
+    throw new Error(
+      `operation_body_mismatch: body does not contain expected API for operation "${operation}"`,
+    );
+  }
+}
+
+/**
  * Send a write script. Calls assertWriteAllowed immediately before sending.
  * The sendFn is injected so write-guard.ts does not import runScriptWithResultFile.
+ *
+ * Stage 6 change: scriptOpts now takes { bodyFn: () => string } instead of
+ * { scriptTemplate: string }. The body is built AFTER authorization so that
+ * the script cannot be pre-constructed and substituted before the guard runs.
+ * A WriteCapability is issued, bound to the exact body and operation, and must
+ * be consumed inside wrapExtendScript before the script is dispatched.
+ *
+ * The wrapFn parameter wraps the body in a JXA+ExtendScript template and
+ * consumes the capability. It is injected to avoid importing compose.ts here.
  */
 export async function sendWriteScript<R>(
   decision: WriteAllowed & WriteDecision,
@@ -584,9 +615,11 @@ export async function sendWriteScript<R>(
     operation: WriteOperation;
     /** For path A: fingerprint from reservePlaceholder, forwarded to assertWriteAllowed for inode verification. */
     reservedFingerprint?: Fingerprint;
-    scriptOpts: Parameters<SendFn<R>>[0];
+    /** Build the script body. Called AFTER assertWriteAllowed succeeds. */
+    scriptOpts: { bodyFn: () => string };
   },
-  sendFn: SendFn<R>
+  sendFn: SendFn<R>,
+  wrapFn: (body: string, cap: object, operation: WriteOperation) => string,
 ): Promise<{ ok: true; result: R } | { ok: false; kind: string; reason: string; message: string }> {
   const assertResult = await assertWriteAllowed(decision, {
     tool: request.tool,
@@ -598,6 +631,21 @@ export async function sendWriteScript<R>(
   if (!assertResult.ok) {
     return assertResult;
   }
+  // assertWriteAllowed has now marked the decision as used (usedDecisions.add at line 564).
+  // Any exception after this point cannot retry — the decision is consumed.
+
+  // Build the body AFTER authorization.
+  const body = request.scriptOpts.bodyFn();
+
+  // Advisory regex check: confirm body contains expected API for the operation.
+  validateOperationBody(body, request.operation);
+
+  // Issue a single-use capability bound to this exact body and operation.
+  const cap = issueWriteCapability(body, request.operation);
+
+  // Wrap body into JXA+ExtendScript template; consumeWriteCapability is called
+  // inside wrapFn, so the capability is consumed before the script is dispatched.
+  const scriptTemplate = wrapFn(body, cap, request.operation);
 
   // Mark in registry as pending before sending
   registry.set(decision.registryKey, {
@@ -609,7 +657,7 @@ export async function sendWriteScript<R>(
 
   let result: R;
   try {
-    result = await sendFn(request.scriptOpts);
+    result = await sendFn({ scriptTemplate });
   } catch (err: unknown) {
     registry.set(decision.registryKey, {
       state: "uncertain",

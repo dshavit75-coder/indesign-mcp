@@ -134,6 +134,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
         finalPath: FINAL_PATH,
       }),
       expect.any(Function),
+      expect.any(Function), // Stage 6: wrapFn injected as 4th arg
     );
     // cleanupPlaceholder must NOT be called on success
     expect(mockCleanupPlaceholder).not.toHaveBeenCalled();
@@ -163,6 +164,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
       expect.objectContaining({ savePath: "B" }),
       expect.not.objectContaining({ reservedFingerprint: expect.anything() }),
       expect.any(Function),
+      expect.any(Function), // Stage 6: wrapFn injected as 4th arg
     );
   });
 

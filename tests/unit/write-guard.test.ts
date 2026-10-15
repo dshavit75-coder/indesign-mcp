@@ -497,8 +497,8 @@ describe("sendWriteScript", () => {
       documentId: "doc1",
       finalPath: tmpDir + "/forged_cod.indd",
       operation: "save-as",
-      scriptOpts: { scriptTemplate: "" },
-    }, sendFn);
+      scriptOpts: { bodyFn: () => "" },
+    }, sendFn, expect.any(Function));
     expect(r.ok).toBe(false);
     expect(sendFn).not.toHaveBeenCalled();
   });
@@ -511,13 +511,14 @@ describe("sendWriteScript", () => {
     // Create placeholder so path-A check passes (Stage A requires placeholder to exist)
     reservePlaceholder(path);
     const sendFn = vi.fn().mockResolvedValue({ path });
+    const wrapFn = vi.fn().mockReturnValue("/* wrapped */");
     const r = await sendWriteScript(dr.decision, {
       tool: "save_document",
       documentId: "doc1",
       finalPath: path,
       operation: "save-as",
-      scriptOpts: { scriptTemplate: "// test script" },
-    }, sendFn);
+      scriptOpts: { bodyFn: () => "doc.saveAs(new File(path));" },
+    }, sendFn, wrapFn);
     expect(sendFn).toHaveBeenCalledTimes(1);
     // Registry should now be owned (or uncertain if lstat fails)
     // Can\'t verify "owned" easily without the file being written by InDesign

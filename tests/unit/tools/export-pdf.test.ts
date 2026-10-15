@@ -171,13 +171,15 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
       expect((result.result as Record<string, unknown>).ok).toBeUndefined();
     }
 
-    // sendWriteScript must have been called with a scriptTemplate writing to partPath,
-    // NOT to finalPath
+    // sendWriteScript must have been called with a bodyFn writing to partPath,
+    // NOT to finalPath (bodyFn is called lazily — invoke it to check the body)
     const sendCall = mockSendWriteScript.mock.calls[0];
     expect(sendCall).toBeDefined();
-    const scriptTemplate = sendCall[1].scriptOpts.scriptTemplate as string;
-    expect(scriptTemplate).not.toContain(FINAL_PATH);
-    expect(scriptTemplate).toContain(".indesign-mcp-");
+    const bodyFn = sendCall[1].scriptOpts.bodyFn as () => string;
+    expect(typeof bodyFn).toBe("function");
+    const scriptBody = bodyFn();
+    expect(scriptBody).not.toContain(FINAL_PATH);
+    expect(scriptBody).toContain(".indesign-mcp-");
 
     // publishPdfPart must have been called with the same partPath that was in the script
     const publishCall = mockPublishPdfPart.mock.calls[0][0];

@@ -272,12 +272,11 @@ export const exportPdfTool = defineTool<Input, { path: string; page_count: numbe
         finalPath: decision.finalPath,
         operation: "export-pdf",
         scriptOpts: {
-          scriptTemplate: wrapExtendScript(
-            buildExportScript(documentId, partPath),
-          ),
+          bodyFn: () => buildExportScript(documentId, partPath),
         },
       },
       sendFn,
+      (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
     );
 
     if (!sendResult.ok) {

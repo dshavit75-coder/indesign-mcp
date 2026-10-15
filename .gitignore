@@ -4,3 +4,4 @@ dist/
 .DS_Store
 .indesign-mcp-tmp/
 coverage/
+vitest.config.ts.timestamp-*.mjs

@@ -217,12 +217,11 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
           operation,
           reservedFingerprint: reserved.fingerprint,
           scriptOpts: {
-            scriptTemplate: wrapExtendScript(
-              buildSaveScript(documentId, decision.finalPath),
-            ),
+            bodyFn: () => buildSaveScript(documentId, decision.finalPath),
           },
         },
         sendFn,
+        (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
       );
 
       if (!sendResult.ok) {
@@ -263,12 +262,11 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
         finalPath: decision.finalPath,
         operation,
         scriptOpts: {
-          scriptTemplate: wrapExtendScript(
-            buildSaveScript(documentId, decision.finalPath),
-          ),
+          bodyFn: () => buildSaveScript(documentId, decision.finalPath),
         },
       },
       sendFn,
+      (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
     );
 
     if (!sendResult.ok) {

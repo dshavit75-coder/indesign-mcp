@@ -1,7 +1,5 @@
 import { describe } from "vitest";
 import { deflateSync } from "node:zlib";
-import { wrapExtendScript } from "../../src/compose.js";
-import { runScriptWithResultFile } from "../../src/transport/result-file.js";
 
 // Conditional describe — only runs when INDESIGN_MCP_INTEGRATION=1.
 // Run with `npm run test:integration`. Requires InDesign 2026 running.
@@ -12,22 +10,21 @@ export const integrationGate =
 export const INTEGRATION_TIMEOUT_MS = 60_000;
 
 /**
- * Closes every open InDesign document without saving. Call from `afterEach`
- * to give each integration test a clean slate. Idempotent — succeeds even
- * when no documents are open.
+ * Stage 6: closeAllDocuments is disabled.
+ *
+ * Broad document closing without scoped authorization is unsafe in the
+ * write-guard architecture. Stage 7 will implement a CloseToken bound
+ * to specific document IDs. Until then, integration tests must track
+ * the document IDs they open and close them individually via their own
+ * cleanup path rather than calling this helper.
+ *
+ * @throws Always throws — this is a deliberate hard block, not a bug.
  */
-export async function closeAllDocuments(): Promise<void> {
-  const body = `
-    while (app.documents.length > 0) {
-      app.documents[0].close(SaveOptions.NO);
-    }
-    return { closed: true };
-  `;
-  const scriptTemplate = wrapExtendScript(body);
-  await runScriptWithResultFile<{ closed: boolean }>({
-    language: "JavaScript",
-    scriptTemplate,
-  });
+export async function closeAllDocuments(): Promise<never> {
+  throw new Error(
+    "closeAllDocuments is disabled until Stage 7. " +
+    "Tests must track document IDs and close them individually via CloseToken.",
+  );
 }
 
 const PNG_CRC_TABLE = (() => {

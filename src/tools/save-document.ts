@@ -208,21 +208,30 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
           resultSchema: ScriptResultSchema,
         });
 
-      const sendResult = await sendWriteScript(
-        decision,
-        {
-          tool: "save_document",
-          documentId,
-          finalPath: decision.finalPath,
-          operation,
-          reservedFingerprint: reserved.fingerprint,
-          scriptOpts: {
-            bodyFn: () => buildSaveScript(documentId, decision.finalPath),
+      let sendResult: Awaited<ReturnType<typeof sendWriteScript<Envelope<ScriptResult>>>>;
+      try {
+        sendResult = await sendWriteScript(
+          decision,
+          {
+            tool: "save_document",
+            documentId,
+            finalPath: decision.finalPath,
+            operation,
+            reservedFingerprint: reserved.fingerprint,
+            scriptOpts: {
+              bodyFn: () => buildSaveScript(documentId, decision.finalPath),
+            },
           },
-        },
-        sendFn,
-        (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
-      );
+          sendFn,
+          (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
+        );
+      } catch (err: unknown) {
+        // sendWriteScript threw before dispatching (e.g. operation_body_mismatch).
+        // Nothing was sent and the registry was not touched: remove our
+        // placeholder (same inode, still empty) and report a normal error.
+        cleanupPlaceholder(decision.finalPath, reservedInode);
+        return fail("write_not_authorized", (err as Error).message);
+      }
 
       if (!sendResult.ok) {
         // Clean up placeholder only if it is still the same 0-byte inode.

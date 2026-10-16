@@ -582,7 +582,8 @@ export type SendFn<R> = (opts: { scriptTemplate: string; [k: string]: unknown })
  */
 function validateOperationBody(body: string, operation: WriteOperation): void {
   const patterns: Record<WriteOperation, RegExp> = {
-    "save-as":       /saveAs\s*\(/,
+    // InDesign's Document has no saveAs(); save-as is doc.save(File(path)).
+    "save-as":       /\.save\s*\(\s*File\s*\(/,
     "in-place-save": /\.save\s*\(/,
     "export-pdf":    /exportFile\s*\(/,
   };

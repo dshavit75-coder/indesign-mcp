@@ -517,7 +517,7 @@ describe("sendWriteScript", () => {
       documentId: "doc1",
       finalPath: path,
       operation: "save-as",
-      scriptOpts: { bodyFn: () => "doc.saveAs(new File(path));" },
+      scriptOpts: { bodyFn: () => 'doc.save(File("/tmp/a_cod.indd"));' },
     }, sendFn, wrapFn);
     expect(sendFn).toHaveBeenCalledTimes(1);
     // Registry should now be owned (or uncertain if lstat fails)

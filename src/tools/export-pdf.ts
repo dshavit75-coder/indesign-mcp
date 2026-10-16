@@ -17,7 +17,7 @@ import {
 } from "../write-guard.js";
 
 // ---------------------------------------------------------------------------
-// Architectural limitation note (§ B8 Stage 4)
+// Architectural limitation note (§ B8 Stage 4, hardened later)
 //
 // The `.part` file (temporary PDF path) is assigned a unique name using a
 // cryptographically random suffix with the `.indesign-mcp-` prefix that is
@@ -30,29 +30,33 @@ import {
 // Node.js and InDesign that would let us atomically claim the partPath before
 // InDesign writes it.
 //
-// What we CAN guarantee:
-//   1. partPath has a unique UUID-based name — practical collision probability
-//      is negligible (128 bits of entropy in the same directory).
-//   2. We pre-check that partPath does not already exist (fail-closed).
-//      A pre-existing `.indesign-mcp-` file is a sign of a prior crashed
-//      export; we refuse rather than silently inherit it.
-//   3. finalPath is never overwritten: fs.link(partPath, finalPath) fails
-//      with EEXIST if finalPath already exists (guaranteed by the kernel).
-//   4. The partPath is cleaned up only after a successful fs.link — i.e. only
-//      after we know the final file was published.  If fs.link fails or
-//      sendWriteScript fails, we do NOT delete the partPath unless we can
-//      verify via lstat that it has non-zero size (i.e. InDesign wrote to it).
-//      If size is zero or the file is missing, we clean up.  If size > 0 and
-//      the link failed (EEXIST race), we leave the partPath and report it.
+// What this tool does:
+//   1. partPath has a unique random name (128 bits) and is checked to be absent
+//      before the export is sent (fail-closed).  A pre-existing file there is a
+//      sign of a prior crashed export; we refuse rather than inherit it.
+//   2. finalPath is never overwritten: fs.link(partPath, finalPath) fails with
+//      EEXIST if finalPath already exists (guaranteed by the kernel).
+//   3. This tool's OWN code never removes the temporary file, on success,
+//      failure or timeout.  It cannot prove that it owns the file (InDesign
+//      replaces it, so the inode seen by the pre-check says nothing), and after
+//      a timeout the export may still be running.  It only REPORTS what it
+//      observes at that path.  The only removal in this execution path is
+//      publishPdfPart's removal of the temporary NAME after a successful link
+//      (write-guard.ts:805-809): done by path, without inode verification,
+//      unchanged by this file and outside its scope.
+//   4. A temporary file that is absent, not a regular file or EMPTY is never
+//      published.  NOT validated: that a non-empty file is a valid PDF (a
+//      `%PDF-` check is out of scope).
 //
 // What we CANNOT guarantee:
-//   - A malicious or malfunctioning process on the same machine that creates a
-//     file at the partPath AFTER our pre-check but BEFORE InDesign writes would
-//     have that file overwritten by InDesign.  This is not considered a
-//     realistic threat given the unique prefix.
-//   - The partPath inode after InDesign writes cannot be verified to match our
-//     pre-check inode, because InDesign replaces the file (new inode) rather
-//     than writing in-place.
+//   - A process that creates a file at partPath AFTER our pre-check but BEFORE
+//     InDesign writes would have it replaced by InDesign (not a realistic
+//     threat given the unique prefix).
+//   - The partPath inode after InDesign writes cannot be tied to the pre-check.
+//   - A swap of the temporary file between our inspection and publishPdfPart's
+//     own link is not detectable.
+//   - Whether an export that timed out is still writing is UNVERIFIED (no real
+//     InDesign run).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -92,6 +96,72 @@ function makePartPath(dir: string): string {
   // legitimate output files.
   return dir + "/.indesign-mcp-" + token + ".pdf.part";
 }
+
+// ---------------------------------------------------------------------------
+// Observation helpers.  They only LOOK at paths: this file never removes one.
+// ---------------------------------------------------------------------------
+
+type PathState =
+  | { kind: "absent" }
+  | { kind: "regular"; size: number }
+  | { kind: "other" }
+  | { kind: "unreadable"; message: string };
+
+function inspectPath(path: string): PathState {
+  try {
+    const st = lstatSync(path);
+    return st.isFile() ? { kind: "regular", size: st.size } : { kind: "other" };
+  } catch (err: unknown) {
+    const e = err as NodeJS.ErrnoException;
+    // Any error other than ENOENT is "could not look", never "it is not there".
+    return e.code === "ENOENT" ? { kind: "absent" } : { kind: "unreadable", message: e.message };
+  }
+}
+
+/**
+ * The temporary path as OBSERVED now; undefined = nothing there.
+ * "failure": nothing in this call removed it.  "after_publish": says nothing about a clean-up,
+ * because this code does not know whether publishPdfPart attempted or achieved one.
+ */
+function partNote(partPath: string, phase: "failure" | "after_publish"): string | undefined {
+  const s = inspectPath(partPath);
+  if (s.kind === "absent") return undefined;
+  const tail = phase === "failure" ? "; it was not removed" : "";
+  if (s.kind === "regular") {
+    return `A file is present at the temporary path (${s.size} bytes)${tail}: ${partPath}. Check it before deleting it.`;
+  }
+  if (s.kind === "other") {
+    return `Something that is not a regular file is present at the temporary path${tail}: ${partPath}.`;
+  }
+  return `The temporary path could not be inspected (${s.message}); its state is unknown: ${partPath}.`;
+}
+
+/** The final path as observed now.  Information only: it is not a cause of any failure. */
+function targetNote(finalPath: string): string {
+  const s = inspectPath(finalPath);
+  if (s.kind === "absent") return `No file is present at ${finalPath} now.`;
+  if (s.kind === "unreadable") return `The target ${finalPath} could not be inspected (${s.message}).`;
+  return `A file is present at ${finalPath} now.`;
+}
+
+function withNote(message: string, note: string | undefined): string {
+  return note === undefined ? message : `${message}. ${note}`;
+}
+
+// CONTRACT (text, not structured): the guard's refusals are plain `Error`s whose message starts with
+// "write_not_authorized:" (write-capability.ts:50,54,57) or "operation_body_mismatch:" (write-guard.ts:591).
+// There is no error class, `code` or `cause` for them (src has no custom Error type), so the prefix is the
+// only signal available without editing write-guard.ts.  It is pinned by tests (write-capability.test.ts,
+// save-document-real-guard.test.ts, and PX1a/PX1a2 here, which use the REAL guard).  An exception that
+// does not match is rethrown unchanged.
+const GUARD_REFUSAL = /^(write_not_authorized|operation_body_mismatch):/;
+
+// CONTRACT (text, not structured): publishPdfPart returns reason "uncertain" for every failure and only
+// its message differs.  It reports EEXIST on link with this prefix (write-guard.ts:800); every other link
+// failure is "link failed: ..." (:802).  The classification depends on this wording until the guard returns
+// a structured cause.  Pinned by PX12b/PX12c, which run the real publishPdfPart.  If the wording changes the
+// failure is reported as io_error with the guard's full message (no false "created concurrently").
+const GUARD_EEXIST = /^final PDF path was taken during export:/;
 
 // ---------------------------------------------------------------------------
 // Pre-query: read-only call to resolve documentId
@@ -253,76 +323,98 @@ export const exportPdfTool = defineTool<Input, { path: string; page_count: numbe
     }
 
     // -----------------------------------------------------------------------
-    // Step 5: Send export script (writes to partPath, NOT finalPath)
+    // Step 5: Send export script (writes to partPath, NOT to finalPath)
     // -----------------------------------------------------------------------
-    // sendFn is typed as SendFn<Envelope<ScriptResult>> to match what
+    // `dispatched` is set as the first statement of sendFn.  It only tells an exception thrown BEFORE the
+    // send began apart from one thrown after it began; it says nothing about whether the export ran or
+    // wrote a file.  sendFn is typed as SendFn<Envelope<ScriptResult>> to match what
     // runScriptWithResultFile actually returns at runtime (Promise<Envelope<T>>).
-    const sendFn: SendFn<Envelope<ScriptResult>> = (opts) =>
-      runScriptWithResultFile<ScriptResult>({
+    let dispatched = false;
+    const sendFn: SendFn<Envelope<ScriptResult>> = (opts) => {
+      dispatched = true;
+      return runScriptWithResultFile<ScriptResult>({
         language: "JavaScript",
         scriptTemplate: opts.scriptTemplate,
         resultSchema: ScriptResultSchema,
       });
+    };
 
-    const sendResult = await sendWriteScript(
-      decision,
-      {
-        tool: "export_pdf",
-        documentId,
-        finalPath: decision.finalPath,
-        operation: "export-pdf",
-        scriptOpts: {
-          bodyFn: () => buildExportScript(documentId, partPath),
+    let sendResult: Awaited<ReturnType<typeof sendWriteScript<Envelope<ScriptResult>>>>;
+    try {
+      sendResult = await sendWriteScript(
+        decision,
+        {
+          tool: "export_pdf",
+          documentId,
+          finalPath: decision.finalPath,
+          operation: "export-pdf",
+          scriptOpts: {
+            bodyFn: () => buildExportScript(documentId, partPath),
+          },
         },
-      },
-      sendFn,
-      (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
-    );
+        sendFn,
+        (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (dispatched) {
+        return fail(
+          "io_error",
+          withNote(
+            `${message}. The send to InDesign had already begun when this error occurred; ` +
+              "whether the export ran or wrote a file is unknown",
+            partNote(partPath, "failure"),
+          ),
+        );
+      }
+      // Before the send began.  Only the guard's own refusals are re-classified; anything else is
+      // rethrown unchanged (server.ts reports it as script_error, as before).
+      if (GUARD_REFUSAL.test(message)) return fail("write_not_authorized", message);
+      throw err;
+    }
 
     if (!sendResult.ok) {
-      // sendWriteScript failed. Attempt cleanup of partPath only if we can
-      // verify it is a zero-byte file (placeholder state — InDesign did not
-      // write to it).  If it has content (InDesign wrote but something else
-      // failed), leave it and report.
-      try {
-        const st = lstatSync(partPath);
-        if (st.isFile() && st.size === 0) {
-          // Safe to remove: InDesign did not write anything useful
-          const { unlink } = await import("node:fs/promises");
-          await unlink(partPath).catch(() => { /* best effort */ });
-        } else if (st.isFile() && st.size > 0) {
-          // InDesign wrote content but send failed for another reason.
-          // Do NOT delete — content may be valuable for debugging.
-          return fail(
-            "io_error",
-            `${sendResult.message}. ` +
-              `Temporary part file with content was left at: ${partPath}`,
-          );
-        }
-      } catch {
-        // partPath does not exist or is inaccessible — nothing to clean up
-      }
-      return fail("io_error", sendResult.message);
+      // The temporary file is only reported, never removed (see the note at the top of this file).
+      return fail("io_error", withNote(sendResult.message, partNote(partPath, "failure")));
     }
 
     // -----------------------------------------------------------------------
     // Step 5b: Check transport Envelope — InDesign script may have failed
     // even though the write-guard layer (sendWriteScript) succeeded.
-    // Propagate before attempting the atomic publish.
+    // Propagate before attempting the atomic publish; kind and fields are kept.
     // -----------------------------------------------------------------------
     if (!sendResult.result.ok) {
-      // InDesign script failed (script_error, timeout, not_found, etc.).
-      // partPath was never written (or is zero-byte). Attempt cleanup.
-      try {
-        const st = lstatSync(partPath);
-        if (st.isFile() && st.size === 0) {
-          const { unlink } = await import("node:fs/promises");
-          await unlink(partPath).catch(() => { /* best effort */ });
-        }
-      } catch {
-        // partPath absent — nothing to clean up
-      }
-      return sendResult.result;
+      const env = sendResult.result;
+      const note = partNote(partPath, "failure");
+      return note === undefined
+        ? env
+        : { ok: false, error: { ...env.error, message: withNote(env.error.message, note) } };
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5c: The temporary file must be a regular, non-empty file before it is published.
+    // NOT validated: that it is a valid PDF (a `%PDF-` check is out of scope).
+    // -----------------------------------------------------------------------
+    const before = inspectPath(partPath);
+    if (before.kind !== "regular") {
+      const what =
+        before.kind === "absent"
+          ? "was not found when checked"
+          : before.kind === "other"
+            ? "is not a regular file"
+            : `could not be inspected (${before.message}); its state is unknown`;
+      return fail(
+        "io_error",
+        `InDesign reported success, but the temporary file ${what}: ${partPath}. ` +
+          "Nothing was published; this call removed nothing.",
+      );
+    }
+    if (before.size === 0) {
+      return fail(
+        "io_error",
+        `InDesign reported success, but the temporary file is an empty file (0 bytes): ${partPath}. ` +
+          "Nothing was published; this call removed nothing.",
+      );
     }
 
     // -----------------------------------------------------------------------
@@ -338,23 +430,18 @@ export const exportPdfTool = defineTool<Input, { path: string; page_count: numbe
     });
 
     if (!publishResult.ok) {
-      // fs.link failed. Determine whether to clean up partPath.
-      try {
-        const st = lstatSync(partPath);
-        if (st.isFile() && st.size > 0) {
-          // partPath has content and publish failed (likely EEXIST race).
-          // Leave the part file so the caller can inspect or retry.
-          return fail(
-            "pdf_replace_blocked",
-            `PDF target already exists (created concurrently): ${decision.finalPath}. ` +
-              `Temporary part file was left at: ${partPath}`,
-            { existing_path: decision.finalPath },
-          );
-        }
-      } catch {
-        // partPath gone — nothing to report
+      // See GUARD_EEXIST: the guard's reason is always "uncertain"; only its message says more.
+      // The observed state of the target is information, not a cause.
+      const note = partNote(partPath, "failure");
+      const target = targetNote(decision.finalPath);
+      if (GUARD_EEXIST.test(publishResult.message)) {
+        return fail(
+          "pdf_replace_blocked",
+          withNote(`${publishResult.message}. ${target}`, note),
+          { existing_path: decision.finalPath },
+        );
       }
-      return fail("io_error", publishResult.message);
+      return fail("io_error", withNote(`Publishing failed: ${publishResult.message}. ${target}`, note));
     }
 
     // -----------------------------------------------------------------------
@@ -362,7 +449,12 @@ export const exportPdfTool = defineTool<Input, { path: string; page_count: numbe
     // -----------------------------------------------------------------------
     // sendResult.result is SuccessEnvelope<ScriptResult> here (checked above).
     // Extract page_count from the inner result; use decision.finalPath (not
-    // partPath) as the canonical output path.
-    return ok({ path: decision.finalPath, page_count: sendResult.result.result!.page_count });
+    // partPath) as the canonical output path.  If something is still at the
+    // temporary path, report what is observed (no claim about why).
+    const leftover = partNote(partPath, "after_publish");
+    return ok(
+      { path: decision.finalPath, page_count: sendResult.result.result!.page_count },
+      leftover === undefined ? {} : { warnings: [`Published. Observed after publishing: ${leftover}`] },
+    );
   },
 });

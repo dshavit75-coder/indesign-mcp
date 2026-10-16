@@ -5,10 +5,9 @@
  *          `dev` cannot be changed on a real file, so every field is varied through
  *          a mocked lstatSync (simulation, stated in the test names).
  *   G-D*   refusal BEFORE the decision is consumed vs failure AFTER it is consumed (F2-8).
- *   G-R*   CHARACTERIZATION of existing behaviour that save_document compensates
- *          for: sendWriteScript records "owned" when the transport answers with an
- *          ok:false envelope (F2-7). If sendWriteScript is ever fixed, these fail
- *          on purpose so the compensation in save_document can be revisited.
+ *   G-R*   sendWriteScript and an ok:false transport envelope (F2-7, after S2): the
+ *          record becomes "uncertain" with the PRIOR fingerprint. Broader coverage of
+ *          return values and registry races is in write-guard-s2.test.ts.
  *   G-C*   cleanupPlaceholder: ownership proof (F2-6) and synchronous deletion (F2-9).
  */
 
@@ -194,12 +193,12 @@ describe("F2-8 — a failure AFTER the decision is consumed consumes it for good
   });
 });
 
-// ── G-R: characterization of sendWriteScript's registry update ──────────────
+// ── G-R: sendWriteScript and an ok:false envelope (after S2) ────────────────
 
-describe("CHARACTERIZATION — sendWriteScript and an ok:false transport envelope (F2-7)", () => {
+describe("sendWriteScript and an ok:false transport envelope (F2-7, after S2)", () => {
   const failedEnvelope = { ok: false, error: { kind: "io_error", message: "script failed inside InDesign" } };
 
-  it("G-R1: path B — returns ok (the envelope is just its result) and records 'owned' with a refreshed fingerprint", async () => {
+  it("G-R1: path B — returns ok (the envelope is just its result) but records 'uncertain' with the PRIOR fingerprint, never refreshed", async () => {
     const { path, key, seed, decision } = await pathBDecision();
     const sendFn = vi.fn().mockImplementation(async () => {
       writeFileSync(path, "0123456789 changed while the script ran");
@@ -209,12 +208,14 @@ describe("CHARACTERIZATION — sendWriteScript and an ok:false transport envelop
 
     const r = await sendWriteScript(decision, request(path), sendFn, wrapFn);
 
-    expect(r.ok).toBe(true); // sendWriteScript does not look inside the envelope
-    expect(registryGet(key)?.state).toBe("owned"); // the gap save_document compensates for
-    expect(registryGet(key)?.fingerprint.size).not.toBe(seed.fingerprint.size);
+    expect(r.ok).toBe(true); // "the send completed"; callers inspect the envelope
+    if (r.ok) expect(r.result).toBe(failedEnvelope);
+    expect(registryGet(key)?.state).toBe("uncertain");
+    expect(registryGet(key)?.fingerprint).toEqual(seed.fingerprint);
+    expect(lstatSync(path).size).not.toBe(seed.fingerprint.size); // proves it was not refreshed from disk
   });
 
-  it("G-R2: path A — records 'owned' for the empty placeholder after a failed envelope", async () => {
+  it("G-R2: path A — records 'uncertain' with a zero fingerprint after a failed envelope", async () => {
     const { path, key } = newName();
     const dr = await decideWrite({ tool: "save_document", operation: "save-as", documentId: "42", path, expectedExtension: ".indd" });
     if (!dr.ok) throw new Error("setup");
@@ -231,8 +232,8 @@ describe("CHARACTERIZATION — sendWriteScript and an ok:false transport envelop
     );
 
     expect(r.ok).toBe(true);
-    expect(registryGet(key)?.state).toBe("owned");
-    expect(registryGet(key)?.fingerprint.size).toBe(0);
+    expect(registryGet(key)?.state).toBe("uncertain");
+    expect(registryGet(key)?.fingerprint).toEqual({ dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 });
   });
 });
 

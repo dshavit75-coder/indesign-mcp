@@ -520,9 +520,9 @@ describe("sendWriteScript", () => {
       scriptOpts: { bodyFn: () => 'doc.save(File("/tmp/a_cod.indd"));' },
     }, sendFn, wrapFn);
     expect(sendFn).toHaveBeenCalledTimes(1);
-    // Registry should now be owned (or uncertain if lstat fails)
-    // Can\'t verify "owned" easily without the file being written by InDesign
-    // but the send was called
+    // sendFn above resolves { path } — not an Envelope with ok: true — so the
+    // record is "uncertain" (only an explicit ok: true can make it "owned");
+    // see write-guard-s2.test.ts. Here we only verify that the send was called.
     expect(r.ok).toBe(true);
   });
 });

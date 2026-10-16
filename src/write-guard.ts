@@ -595,8 +595,26 @@ function validateOperationBody(body: string, operation: WriteOperation): void {
 }
 
 /**
+ * True only for an explicit Envelope success: an object whose `ok` is exactly
+ * `true`. Everything else (ok:false, a missing or non-boolean `ok`, null,
+ * undefined, primitives) is not proof that the write happened.
+ */
+function isExplicitSendSuccess(result: unknown): boolean {
+  return typeof result === "object" && result !== null && (result as { ok?: unknown }).ok === true;
+}
+
+/**
  * Send a write script. Calls assertWriteAllowed immediately before sending.
  * The sendFn is injected so write-guard.ts does not import runScriptWithResultFile.
+ *
+ * Registry after the send: the record is set to "owned" only when the send did
+ * not throw AND `sendFn` returned an explicit Envelope success (`ok === true`)
+ * AND the target can be stat'ed. In every other case it is set to "uncertain"
+ * with the fingerprint the decision was verified against (never refreshed from
+ * disk). If the record is no longer the "pending" record installed here (it was
+ * replaced or removed during the send) it belongs to someone else: it is left
+ * untouched. The returned `{ ok: true, result }` means "the send completed", not
+ * "the write succeeded"; callers inspect `result`.
  *
  * Stage 6 change: scriptOpts now takes { bodyFn: () => string } instead of
  * { scriptTemplate: string }. The body is built AFTER authorization so that
@@ -648,28 +666,45 @@ export async function sendWriteScript<R>(
   // inside wrapFn, so the capability is consumed before the script is dispatched.
   const scriptTemplate = wrapFn(body, cap, request.operation);
 
-  // Mark in registry as pending before sending
-  registry.set(decision.registryKey, {
+  // Mark in registry as pending before sending. Keep the reference: after the
+  // send, only this exact record may be updated.
+  const pendingRecord: RegistryRecord = {
     state: "pending",
     documentId: decision.documentId,
     tool: decision.tool,
     fingerprint: decision.expectedFingerprint ?? { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 },
-  });
+  };
+  registry.set(decision.registryKey, pendingRecord);
+  const stillPending = (): boolean => registry.get(decision.registryKey) === pendingRecord;
+  const markUncertain = (): void => {
+    registry.set(decision.registryKey, {
+      state: "uncertain",
+      documentId: decision.documentId,
+      tool: decision.tool,
+      fingerprint: pendingRecord.fingerprint,
+    });
+  };
 
   let result: R;
   try {
     result = await sendFn({ scriptTemplate });
   } catch (err: unknown) {
-    registry.set(decision.registryKey, {
-      state: "uncertain",
-      documentId: decision.documentId,
-      tool: decision.tool,
-      fingerprint: decision.expectedFingerprint ?? { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 },
-    });
+    if (stillPending()) markUncertain();
     return { ok: false, kind: "io_error", reason: "uncertain", message: `write script failed: ${(err as Error).message}` };
   }
 
-  // Update registry with fresh fingerprint
+  // The record was replaced or removed during the send: it is not ours to touch.
+  if (!stillPending()) {
+    return { ok: true, result };
+  }
+
+  // No explicit success from the transport: not proof the write happened.
+  if (!isExplicitSendSuccess(result)) {
+    markUncertain();
+    return { ok: true, result };
+  }
+
+  // Explicit success: record ownership only if the target can be stat'ed.
   try {
     const st = lstatSync(decision.finalPath);
     const fp = fingerprintFromStat(st);
@@ -680,12 +715,7 @@ export async function sendWriteScript<R>(
       fingerprint: fp,
     });
   } catch {
-    registry.set(decision.registryKey, {
-      state: "uncertain",
-      documentId: decision.documentId,
-      tool: decision.tool,
-      fingerprint: decision.expectedFingerprint ?? { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 },
-    });
+    markUncertain();
   }
 
   return { ok: true, result };

@@ -3,6 +3,8 @@ import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findPageById } from "../script-helpers.js";
+import { sendReadScript } from "../read-guard.js";
+import type { Envelope } from "../types.js";
 
 const InputSchema = z
   .object({
@@ -144,11 +146,17 @@ export const getPageStateTool = defineTool<Input, Result>({
   description:
     "Returns a snapshot of a page: its bounds in mm and a list of frames with their type, bounds, applied paragraph style (if uniform), and a text snippet (first 200 chars).",
   inputSchema: InputSchema,
-  async handler(input) {
-    return runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+  async handler(input): Promise<Envelope<Result>> {
+    // documentId: use the supplied document_id, or null for activeDocument queries.
+    // null here means "not bound to a specific document by ID" — see read-guard.ts.
+    const documentId = input.document_id ?? null;
+    return sendReadScript<Envelope<Result>>(
+      documentId,
+      "get_page_state",
+      { bodyFn: () => buildScriptBody(input) },
+      (opts) => runScriptWithResultFile<ScriptResult>({ language: "JavaScript", resultSchema: ScriptResultSchema, ...opts }),
+      (body, tok, docId) =>
+        wrapExtendScript(body, { _readToken: tok, documentId: docId }),
+    );
   },
 });

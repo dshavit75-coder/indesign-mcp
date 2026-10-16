@@ -3,6 +3,8 @@ import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById } from "../script-helpers.js";
+import { sendReadScript } from "../read-guard.js";
+import type { Envelope } from "../types.js";
 
 const InputSchema = z
   .object({
@@ -63,11 +65,17 @@ export const listParagraphStylesTool = defineTool<Input, Result>({
   description:
     "Lists paragraph styles defined in the document. Internal styles whose names begin with '[' (such as '[No Paragraph Style]' and '[Basic Paragraph]') are excluded. Returns name, point size, leading in points (if set numerically), and fill colour swatch name.",
   inputSchema: InputSchema,
-  async handler(input) {
-    return runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+  async handler(input): Promise<Envelope<Result>> {
+    // documentId: use the supplied document_id, or null for activeDocument queries.
+    // null here means "not bound to a specific document by ID" — see read-guard.ts.
+    const documentId = input.document_id ?? null;
+    return sendReadScript<Envelope<Result>>(
+      documentId,
+      "list_paragraph_styles",
+      { bodyFn: () => buildScriptBody(input) },
+      (opts) => runScriptWithResultFile<ScriptResult>({ language: "JavaScript", resultSchema: ScriptResultSchema, ...opts }),
+      (body, tok, docId) =>
+        wrapExtendScript(body, { _readToken: tok, documentId: docId }),
+    );
   },
 });

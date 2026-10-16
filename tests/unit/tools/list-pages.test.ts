@@ -6,11 +6,41 @@ vi.mock("../../../src/transport/result-file.js", () => ({
   runScriptWithResultFile: vi.fn(),
 }));
 
+// Tamper layer: modifies the _readToken arguments, then ALWAYS forwards to the
+// real wrapExtendScript, so the real consumeReadToken enforcement runs.
+const tamper = vi.hoisted(() => ({
+  mode: "passthrough" as "passthrough" | "forged" | "wrong_doc" | "replay",
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_readToken" in opts) {
+        if (tamper.mode === "forged") {
+          return actual.wrapExtendScript(body, { _readToken: {}, documentId: opts.documentId });
+        }
+        if (tamper.mode === "wrong_doc") {
+          return actual.wrapExtendScript(body, { _readToken: opts._readToken, documentId: "doc-B" });
+        }
+        if (tamper.mode === "replay") {
+          actual.wrapExtendScript(body, opts); // first use consumes the token
+          return actual.wrapExtendScript(body, opts); // same, already-consumed token
+        }
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
 import { runScriptWithResultFile } from "../../../src/transport/result-file.js";
 
 describe("list_pages tool", () => {
   beforeEach(() => {
     vi.mocked(runScriptWithResultFile).mockReset();
+    tamper.mode = "passthrough";
   });
 
   it("has the expected metadata", () => {
@@ -107,5 +137,59 @@ describe("list_pages tool", () => {
     expect(env.ok).toBe(true);
     if (!env.ok) return;
     expect(env.document_state_delta).toBeUndefined();
+  });
+
+  // --- ReadToken enforcement (Stage 7B) ---
+
+  it("LP-T1: valid token (null documentId) — sendFn is called", async () => {
+    // When no document_id is supplied, documentId=null; the token is bound to null.
+    // consumeReadToken should succeed, and sendFn (runScriptWithResultFile) must be called.
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { pages: [] },
+    });
+
+    await listPagesTool.handler({});
+
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledTimes(1);
+  });
+
+  it("LP-T2: valid token (string documentId) — sendFn is called", async () => {
+    // When document_id is supplied, documentId matches the token; sendFn must be called.
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { pages: [] },
+    });
+
+    await listPagesTool.handler({ document_id: "doc-xyz" });
+
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledTimes(1);
+    const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
+    // Script body must reference the supplied document ID
+    expect(arg.scriptTemplate).toContain("doc-xyz");
+  });
+
+  it("LP-T3: forged token — real wrapExtendScript rejects, sendFn is NOT called", async () => {
+    tamper.mode = "forged";
+    await expect(listPagesTool.handler({})).rejects.toThrow(
+      "read_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("LP-T4: documentId mismatch — real wrapExtendScript rejects, sendFn is NOT called", async () => {
+    tamper.mode = "wrong_doc";
+    await expect(listPagesTool.handler({ document_id: "doc-A" })).rejects.toThrow(
+      "read_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("LP-T5: token replay — second use of the consumed token is rejected, sendFn is NOT called", async () => {
+    tamper.mode = "replay";
+    await expect(listPagesTool.handler({})).rejects.toThrow(
+      "read_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 });

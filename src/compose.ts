@@ -1,7 +1,9 @@
 // Stage 6: import capability consumer for the write track.
+// Stage 7B: import ReadToken consumer for the read track.
 // compose.ts remains a leaf for callers that pass no opts (legacy pass-through).
 import { consumeWriteCapability } from "./write-capability.js";
 import type { WriteOperation } from "./write-capability.js";
+import { consumeReadToken } from "./read-capability.js";
 
 /**
  * Sentinel replaced by runScriptWithResultFile with the actual temp-file path
@@ -83,10 +85,10 @@ export function prelude(...sources: string[]): string {
  *   plain JS throw       → {ok:false, error:{kind:"script_error", message, stack}}
  *   no InDesign          → {ok:false, error:{kind:"app_not_available", message}}
  *
- * Stage 6 — three tracks:
+ * Stage 7B — three tracks:
  *   1. Write operation: opts._writeCapability present → consumeWriteCapability()
  *      The capability is consumed here, binding the body to the authorized operation.
- *   2. Read operation: opts._readToken present → validateReadToken() [Stage 7: NYI]
+ *   2. Read operation: opts._readToken present → consumeReadToken() [Stage 7B: active]
  *   3. Legacy pass-through: no opts → allowed in Stage 6 for the 30+ read tools
  *      that have not yet been given ReadTokens. Stage 7 will replace this with
  *      `throw new Error("missing_token: ...")`.
@@ -95,16 +97,20 @@ export function wrapExtendScript(
   body: string,
   opts?:
     | { _writeCapability: object; operation: WriteOperation }
-    | { _readToken: object },
+    | { _readToken: object; documentId: string | null },
 ): string {
   if (opts !== undefined && "_writeCapability" in opts) {
     // Write track: consume the capability — throws if not authorized, mismatched body/op, or already used.
     consumeWriteCapability(opts._writeCapability, body, opts.operation);
   } else if (opts !== undefined && "_readToken" in opts) {
-    // Read track (Stage 7): validate the read token.
-    // NYI in Stage 6 — ReadToken infrastructure is a Stage 7 task.
-    void opts._readToken; // prevent unused-var warning
-    throw new Error("read_token_not_implemented: ReadToken enforcement is a Stage 7 task");
+    // Read track (Stage 7B): consume the token — throws if not issued, already used,
+    // or documentId does not match.
+    //
+    // KNOWN LIMITATION: enforcement here does not prevent a caller from constructing
+    // a scriptTemplate string and passing it directly to runScriptWithResultFile,
+    // bypassing wrapExtendScript entirely. Full enforcement at the send point is a
+    // Stage 7F task. result-file.ts is a protected file and is not modified here.
+    consumeReadToken(opts._readToken, opts.documentId, "wrapExtendScript");
   }
   // else: legacy pass-through — no token required in Stage 6.
   const innerSource =

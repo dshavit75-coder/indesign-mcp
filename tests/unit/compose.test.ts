@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Script } from "node:vm";
 import { wrapExtendScript } from "../../src/compose.js";
+import { issueReadToken } from "../../src/read-capability.js";
 
 describe("wrapExtendScript", () => {
   it("produces a JXA wrapper that calls InDesign do-script and writes JSON", () => {
@@ -323,5 +324,63 @@ describe("wrapExtendScript", () => {
     const env = JSON.parse(result as string);
     expect(env.ok).toBe(false);
     expect(env.error.kind).toBe("io_error");
+  });
+});
+
+describe("wrapExtendScript — _readToken track", () => {
+  const body = `return { x: 1 };`;
+
+  it("C-R1: valid token (null documentId) returns the same wrapper as the legacy path", () => {
+    const tok = issueReadToken(null, "C-R1");
+    const wrapped = wrapExtendScript(body, { _readToken: tok, documentId: null });
+    expect(wrapped).toContain(body);
+    expect(wrapped).toBe(wrapExtendScript(body));
+  });
+
+  it("C-R2: valid token (string documentId) returns the wrapper", () => {
+    const tok = issueReadToken("doc-1", "C-R2");
+    const wrapped = wrapExtendScript(body, { _readToken: tok, documentId: "doc-1" });
+    expect(wrapped).toContain(body);
+  });
+
+  it("C-R3: forged tokens are rejected (empty object and look-alike object)", () => {
+    expect(() =>
+      wrapExtendScript(body, { _readToken: {}, documentId: null }),
+    ).toThrow("read_not_authorized: token not issued by this guard");
+    const lookAlike = { documentId: null, issuedBy: "C-R3", issuedAt: Date.now() };
+    expect(() =>
+      wrapExtendScript(body, { _readToken: lookAlike, documentId: null }),
+    ).toThrow("read_not_authorized: token not issued by this guard");
+  });
+
+  it("C-R4: documentId mismatch is rejected (null→string, string→null, string→other)", () => {
+    expect(() =>
+      wrapExtendScript(body, {
+        _readToken: issueReadToken(null, "C-R4"),
+        documentId: "doc-1",
+      }),
+    ).toThrow("read_not_authorized: documentId mismatch");
+    expect(() =>
+      wrapExtendScript(body, {
+        _readToken: issueReadToken("doc-1", "C-R4"),
+        documentId: null,
+      }),
+    ).toThrow("read_not_authorized: documentId mismatch");
+    expect(() =>
+      wrapExtendScript(body, {
+        _readToken: issueReadToken("doc-1", "C-R4"),
+        documentId: "doc-2",
+      }),
+    ).toThrow("read_not_authorized: documentId mismatch");
+  });
+
+  it("C-R5: reusing an already-consumed token is rejected", () => {
+    const tok = issueReadToken("doc-1", "C-R5");
+    expect(() =>
+      wrapExtendScript(body, { _readToken: tok, documentId: "doc-1" }),
+    ).not.toThrow();
+    expect(() =>
+      wrapExtendScript(body, { _readToken: tok, documentId: "doc-1" }),
+    ).toThrow("read_not_authorized: token not issued by this guard");
   });
 });

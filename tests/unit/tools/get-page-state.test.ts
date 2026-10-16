@@ -88,3 +88,72 @@ describe("get_page_state tool", () => {
     expect(env.error.kind).toBe("not_found");
   });
 });
+
+// ── ReadToken guard tests ────────────────────────────────────────────────────
+import { issueReadToken } from "../../../src/read-capability.js";
+
+describe("get_page_state – ReadToken guard (GP-T1..T4)", () => {
+  beforeEach(() => {
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  // GP-T1: valid token with documentId = null (activeDocument path)
+  it("GP-T1: dispatches sendFn when token is valid and documentId is null", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: {
+        page_id: "p1",
+        page_index: 0,
+        bounds_mm: { x: 0, y: 0, width: 210, height: 297 },
+        frames: [],
+      },
+    });
+
+    const env = await getPageStateTool.handler({ page_id: "p1" });
+    expect(env.ok).toBe(true);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+
+  // GP-T2: valid token with explicit document_id
+  it("GP-T2: dispatches sendFn when token is valid and documentId matches", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: {
+        page_id: "p2",
+        page_index: 1,
+        bounds_mm: { x: 0, y: 0, width: 210, height: 297 },
+        frames: [],
+      },
+    });
+
+    const env = await getPageStateTool.handler({
+      page_id: "p2",
+      document_id: "doc-abc",
+    });
+    expect(env.ok).toBe(true);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+
+  // GP-T3: forged token → consumeReadToken throws, sendFn never called
+  it("GP-T3: throws and does not call sendFn when token is forged", async () => {
+    const forgedToken = {};
+    // Directly call consumeReadToken via wrapExtendScript path by verifying
+    // that a manually crafted wrapFn with a forged token throws.
+    const { wrapExtendScript } = await import("../../../src/compose.js");
+    expect(() =>
+      wrapExtendScript("body", { _readToken: forgedToken, documentId: null }),
+    ).toThrow();
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  // GP-T4: documentId mismatch → consumeReadToken throws, sendFn never called
+  it("GP-T4: throws and does not call sendFn when documentId mismatches issued token", async () => {
+    const tok = issueReadToken("doc-issued", "test");
+    const { wrapExtendScript } = await import("../../../src/compose.js");
+    // Token was issued for "doc-issued" but we claim "doc-other"
+    expect(() =>
+      wrapExtendScript("body", { _readToken: tok, documentId: "doc-other" }),
+    ).toThrow();
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+});

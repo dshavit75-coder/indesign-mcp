@@ -14,7 +14,7 @@
  */
 
 import { homedir } from "node:os";
-import { lstatSync, openSync, closeSync, statSync, realpathSync } from "node:fs";
+import { lstatSync, openSync, closeSync, statSync, realpathSync, unlinkSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { dirname, basename, extname } from "node:path";
 import type { DocumentId, WriteRefusalReason } from "./types.js";
@@ -723,15 +723,17 @@ export function reservePlaceholder(path: string): { ok: true; fingerprint: Finge
 
 /**
  * Clean up a placeholder: unlink only if still the same inode and length 0.
+ * The unlink is synchronous, so a placeholder that passed the checks is gone
+ * when this function returns. Best effort: an unlink error is swallowed.
  */
 export function cleanupPlaceholder(path: string, expectedInode: number): void {
   try {
     const st = lstatSync(path);
     if (st.isFile() && st.size === 0 && st.ino === expectedInode) {
-      fs.unlink(path).catch(() => { /* best effort */ });
+      unlinkSync(path);
     }
   } catch {
-    // Already gone — no action needed
+    // Already gone or not removable — no action needed
   }
 }
 

@@ -13,7 +13,9 @@ import {
   cleanupPlaceholder,
   sendWriteScript,
   registrySet,
+  type Fingerprint,
   type SendFn,
+  type WriteDecision,
 } from "../write-guard.js";
 import { lstatSync } from "node:fs";
 
@@ -70,23 +72,37 @@ return { documentId: String(doc.id), fullName: String(doc.fullName) };
 // Write script: performs the actual save
 // ---------------------------------------------------------------------------
 
+/**
+ * Checks the script performs inside InDesign immediately before saving.
+ *   - expectedFullName: doc.fullName as seen by the pre-query; a different value
+ *     means the document was swapped, closed or saved elsewhere since then.
+ *   - mode "A": the target must be the empty placeholder reserved for this save.
+ *   - mode "B": the target must exist with the size recorded in the decision.
+ * These detect a changed document and a deleted / differently-sized file. They
+ * cannot detect a same-size replacement or any change after the save starts.
+ */
+type SaveChecks = { expectedFullName: string } & (
+  | { mode: "A" }
+  | { mode: "B"; expectedSize: number }
+);
+
 function buildSaveScript(
   documentId: string,
-  absolutePath: string | undefined,
+  absolutePath: string,
+  checks: SaveChecks,
 ): string {
   // Always target by documentId (result of pre-query), never app.activeDocument,
   // to avoid accidentally saving the wrong document if focus changed.
   const docExpr = `findDocumentById(${lit(documentId)})`;
 
-  const saveCall =
-    absolutePath !== undefined
-      ? `doc.save(File(${lit(absolutePath)}));`
-      : `
-        if (!doc.saved) {
-          throw { name: "io_error", message: "document has never been saved; provide a path to save-as" };
-        }
-        doc.save();
-      `;
+  const targetCheck =
+    checks.mode === "A"
+      ? `if (!__target.exists || __target.length !== 0) {
+  throw { name: "name_collision", message: "target is not the empty reserved placeholder: " + ${lit(absolutePath)} };
+}`
+      : `if (!__target.exists || __target.length !== ${checks.expectedSize}) {
+  throw { name: "name_collision", message: "target file is missing or changed size: " + ${lit(absolutePath)} };
+}`;
 
   return `
 ${prelude(findDocumentById)}
@@ -94,9 +110,34 @@ var doc = ${docExpr};
 if (doc === null) {
   throw { name: "not_found", message: "document not found during save: " + ${lit(documentId)} };
 }
-${saveCall}
+var __fullName = "";
+try { __fullName = String(doc.fullName); } catch (e) { __fullName = ""; }
+if (__fullName !== ${lit(checks.expectedFullName)}) {
+  throw { name: "io_error", message: "document changed between query and save: expected fullName " + ${lit(checks.expectedFullName)} + ", found " + __fullName };
+}
+var __target = File(${lit(absolutePath)});
+${targetCheck}
+doc.save(File(${lit(absolutePath)}));
 return { path: String(doc.fullName) };
 `;
+}
+
+const ZERO_FINGERPRINT: Fingerprint = { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 };
+
+/**
+ * The transport can answer with an ok:false envelope instead of throwing, and
+ * sendWriteScript (unchanged) then records the path as "owned" because it only
+ * sees that the send did not throw. A failed save must not leave ownership
+ * behind: mark the record "uncertain", keeping the fingerprint the decision was
+ * verified against (path B) or a zero fingerprint (path A). Never refreshed.
+ */
+function markUncertainAfterFailedSave(decision: WriteDecision, documentId: string): void {
+  registrySet(decision.registryKey, {
+    state: "uncertain",
+    documentId,
+    tool: "save_document",
+    fingerprint: decision.expectedFingerprint ?? ZERO_FINGERPRINT,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +260,11 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
             operation,
             reservedFingerprint: reserved.fingerprint,
             scriptOpts: {
-              bodyFn: () => buildSaveScript(documentId, decision.finalPath),
+              bodyFn: () =>
+                buildSaveScript(documentId, decision.finalPath, {
+                  mode: "A",
+                  expectedFullName: fullName,
+                }),
             },
           },
           sendFn,
@@ -246,6 +291,7 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
       // Otherwise extract the inner ScriptResult and wrap in a single ok() envelope
       // to produce the expected MCP contract: { ok: true, result: { path } }.
       if (!sendResult.result.ok) {
+        markUncertainAfterFailedSave(decision, documentId);
         cleanupPlaceholder(decision.finalPath, reservedInode);
         return sendResult.result;
       }
@@ -263,20 +309,37 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
         resultSchema: ScriptResultSchema,
       });
 
-    const sendResult = await sendWriteScript(
-      decision,
-      {
-        tool: "save_document",
-        documentId,
-        finalPath: decision.finalPath,
-        operation,
-        scriptOpts: {
-          bodyFn: () => buildSaveScript(documentId, decision.finalPath),
+    let sendResult: Awaited<ReturnType<typeof sendWriteScript<Envelope<ScriptResult>>>>;
+    try {
+      sendResult = await sendWriteScript(
+        decision,
+        {
+          tool: "save_document",
+          documentId,
+          finalPath: decision.finalPath,
+          operation,
+          scriptOpts: {
+            bodyFn: () => {
+              const expectedSize = decision.expectedFingerprint?.size;
+              if (expectedSize === undefined) {
+                throw new Error("path-B decision carries no fingerprint");
+              }
+              return buildSaveScript(documentId, decision.finalPath, {
+                mode: "B",
+                expectedFullName: fullName,
+                expectedSize,
+              });
+            },
+          },
         },
-      },
-      sendFn,
-      (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
-    );
+        sendFn,
+        (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
+      );
+    } catch (err: unknown) {
+      // sendWriteScript threw before dispatching (e.g. operation_body_mismatch).
+      // Nothing was sent and the registry was not touched: report a normal error.
+      return fail("write_not_authorized", (err as Error).message);
+    }
 
     if (!sendResult.ok) {
       return fail(
@@ -291,6 +354,7 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
     // sendResult.result is Envelope<ScriptResult> from the transport layer.
     // Propagate transport failures; otherwise extract and re-wrap as single envelope.
     if (!sendResult.result.ok) {
+      markUncertainAfterFailedSave(decision, documentId);
       return sendResult.result;
     }
     return ok(sendResult.result.result!);

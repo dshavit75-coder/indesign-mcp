@@ -107,7 +107,7 @@ IDs are stable references for §7 and §8.
 | **G2** | **Partly closed:** `save_document` has a try/catch on both send paths (`save-document.ts:347`, `:433`); an exception before dispatch returns a normal envelope (`write_not_authorized`). **Correction to earlier wording:** an uncaught exception did not surface as a raw rejection at the MCP boundary; `server.ts:54-57` converts it to a `script_error` envelope ('tool handler threw: …'), with the wrong kind and without the tool's own clean-up. **`export_pdf` (`0d7548f`, `export-pdf.ts:344`–`:374`):** an exception thrown after the send began → `io_error` ('outcome unknown', `dispatched` flag); a guard refusal before it (message prefix `write_not_authorized:` / `operation_body_mismatch:`, G17) → `write_not_authorized`; **any other exception is rethrown unchanged**, and `server.ts:54-57` still reports it as `script_error`. The `dispatched` branch is reached in tests only through a mock, because `sendWriteScript` catches a throwing `sendFn` itself (`write-guard.ts:691`) | `save-document-f2.test.ts` F1, F2; `export-pdf.test.ts` PX1a, PX1a2 (real guard), PX1b, PX1c, PX1c-b | In `export_pdf` an exception that is not a recognised guard refusal is still reported as `script_error` by `server.ts` | F2 (`save_document` done; `export_pdf` partly: unrecognised exceptions unchanged) |
 | **G3** | `computeAgentName` exists but no tool calls it; there is no working-copy or checkpoint option; tests I2, I6, I9a, I12, I13 of the v3.7 plan do not exist | `grep -rn computeAgentName src tests`: no use in `src/` outside its definition in `write-guard.ts`; called only from `tests/unit/write-guard.test.ts` (Ran) | `_cod` naming is not applied by the tools | decision D6 (§8); **still open** — none of the later commits changed it |
 | **G4** | Integration infrastructure is absent: no `global-setup.ts`, `runToken`, `createTestDocument`, `closeTestDocuments`, `vitest.integration.config.ts`, `test-infra-policy.test.ts`, `safety.int.test.ts` | files do not exist (Ran `ls`) | `closeAllDocuments` throws, and 35 of the 36 `tests/integration/*.int.test.ts` files call it → the integration suite cannot run (safe, by design) | §7 steps 4–5 |
-| **G5** | 23 document-mutating tools are ungated | §2 | any foreign-document or wrong-document edit is prevented only by convention | **7C** (D1, D2) |
+| **G5** | 23 document-mutating tools are ungated | §2 | any foreign-document or wrong-document edit is prevented only by convention. **Open on purpose in B8 (D2-d, decided 2026-10-17).** The 23 tools have no enforcement that binds an edit to a document. That none of them calls a save / export / close function today (**Ran**, 2026-10-17: grep of `src/tools/` outside `save_document` and `export_pdf`, no match) is a snapshot of the code, not proof that the risk is gone | **7C deferred to B9** (D2-d); not part of B8 |
 | **G6** | `activeDocument` fallback in 27 tool files | `grep -l` | edits may land on the frontmost document | B9 (out of B8) |
 | **G7** | No enforcement at the send point | §3 | hand-built script templates bypass all guards | **7F** (D3) |
 | **G8** | Documentation drift: README/PROJECT_STATE (26 tools, 415 tests); v3.7 spec dependency table ("installed 1.32.1", "working-tree lock differs"), limitation 13, Stage 0 expectations (`M package-lock.json`, branch `plan-b8-safety`) | §2, §1 | readers get a wrong picture | docs step (Stage 9) |
@@ -155,8 +155,8 @@ Order reflects dependencies. Each step: separate approval, a focused plan before
 | --- | --- | --- | --- |
 | **1. v3.8 documents** | This document | — | user approval of this document |
 | **2. F2 and hardening — done for `save_document`; `export_pdf` partly** (`bf42510`, `0a05799`, `b8950fb`, `872804d`; `0d7548f` for `export_pdf`) | Done for `save_document`: in-script checks (G1), try/catch on both send paths (G2), the S2 registry rule, removal of the blind registry write, serialized calls (lock), outcome classification, clean-up reporting, synchronous `cleanupPlaceholder` (G10), and the tests in §1. **Done for `export_pdf` (`0d7548f`):** try/catch classification (G2), the temporary `.part` never removed by the tool and reported, an absent / non-regular / empty `.part` not published, publish-failure classification, a leftover reported in `warnings`. **Not done for `export_pdf`:** in-script checks (G1), a shared lock (G13), tool-level registry tests for the failure paths, removal of the temporary name with inode verification (G16), a `%PDF-` check (G18) | F1 (done). Independent of D1/D2 | any change needed in `export-pdf` beyond the approved plan → stop and ask |
-| **3. 7C** | Gating of the 23 mutating tools (G5), shape set by D1 and D2 | step 2; D1, D2 decided | not started until F2 passes and the 7C scope is approved separately |
-| **4. CloseToken + integration infrastructure** | `global-setup`, `runToken`, `createTestDocument`/`closeTestDocuments`, narrow cleanup (spec §1) — shape set by D1 | D1; 7C scope (create_document is a legacy tool) | no live run before the pre-check (zero open documents) exists |
+| **3. 7C** | **Deferred to B9 (D2-d, decided 2026-10-17).** Not part of B8: the 23 tools stay on the legacy pass-through and G5 stays open. B9 makes `document_id` required; only then can a token be bound to a real document | B9 (`document_id` required) | a separate plan and approval in B9; nothing in B8 is to be reported as gating these tools |
+| **4. CloseToken + integration infrastructure** | `global-setup`, `runToken`, `createTestDocument`/`closeTestDocuments`, narrow cleanup (spec §1) — shape set by D1 | D1; `create_document` stays a legacy, ungated tool (7C deferred to B9, D2-d) | no live run before the pre-check (zero open documents) exists |
 | **5. Mechanical rename in 35 files** | spec plan Stage 7, with the reverse-comparison script | step 4 | any difference in the reverse comparison → stop |
 | **6. Live tests (spec §7)** | L0, L-R, L3…; only on documents the test created; user runs each | steps 2, 4, 5 | any failure stops the sequence |
 | **7. 7F** | enforcement at the send point | D3 (touches protected `result-file.ts`) | explicit approval to modify `result-file.ts` |
@@ -182,13 +182,13 @@ F2 is complete only when **all** of the following hold. They are acceptance crit
 
 **Limits that F2 does not remove (must be stated in the F2 report, not claimed as solved):** a replacement of the file by another process **after** the script is dispatched (spec §3 "I9", limitation 2) is narrowed, not closed; the in-script size check does not detect a same-size replacement; the in-script checks are verified against a mocked transport only, so InDesign's real behaviour stays **UNVERIFIED** until the live tests (§7 step 6). The `save_document` lock orders `save_document` calls only (G13). For `export_pdf` the open limits are G16–G18, and it has no in-script checks (G1) and no shared lock (G13).
 
-**Why this order.** F2 first because it closes the largest *real* gap on the existing write path and does not depend on any open decision; widening capabilities to more tools before the write path is sound would extend trust on a weaker base. 7C after, because its shape depends on D1 and D2. Integration infrastructure after 7C because `create_document` (a legacy tool) is what test helpers call.
+**Why this order.** F2 first because it closes the largest *real* gap on the existing write path and does not depend on any open decision; widening capabilities to more tools before the write path is sound would extend trust on a weaker base. 7C is deferred to B9 (D2-d). Integration infrastructure (step 4) does not wait for 7C: it depends on D1, and `create_document` (a legacy tool, still ungated under D2-d) is what the test helpers call.
 
 ---
 
 ## 8. Decisions that still need approval
 
-Both D1 and D2 are open. v3.8 does **not** assume `scriptClass` stays or that `mutate-*` modules are required. Neither `mutate-capability.ts` nor `mutate-guard.ts` exists (Ran `ls`).
+D1 is open. **D2 was decided on 2026-10-17: D2-d (defer 7C to B9).** v3.8 does **not** assume `scriptClass` stays, and no `mutate-*` module is planned in B8. Neither `mutate-capability.ts` nor `mutate-guard.ts` exists (Ran `ls`).
 
 ### D1 — What happens to `scriptClass` and the test-mode foreign-document guard
 
@@ -200,7 +200,7 @@ v3.7 intent (spec §1): `wrapExtendScript` takes `opts.scriptClass` (`tool` | `t
 | **D1-b. Replace with capability-style tokens** | test helpers receive their own issuer (probe/cleanup/close tokens) in the same style as `ReadToken`/`WriteCapability` | one mechanism; consistent audit story | needs a new spec section and new tests; `issue*` functions stay exported (policy boundary); live tests that rely on class semantics (L3b, C2, C10) must be redefined |
 | **D1-c. Drop the in-`src` guard; test-side infrastructure only** | pre-check for zero documents, `createTestDocument`, narrow cleanup by id + label, no change to `compose.ts` | smallest change to production code | no runtime protection against a document opened mid-run before a tool body; L3b cannot be satisfied as written; spec failure row "document opened during a test" changes from "stopped" to "may be edited" |
 
-### D2 — Are `mutate-*` modules required for the 23 mutating tools (7C)
+### D2 — Are `mutate-*` modules required for the 23 mutating tools (7C) — **decided: D2-d (2026-10-17)**
 
 Fact: the 23 legacy tools are the mutators (§2). A read-token analogue exists (`read-capability`/`read-guard`); a mutating analogue does not.
 
@@ -211,7 +211,9 @@ Fact: the 23 legacy tools are the mutators (§2). A read-token analogue exists (
 | **D2-c. Do not gate mutators in B8** | add a body scan in `compose.ts` (the write patterns of spec §3) and rely on CloseToken infrastructure; document-binding waits for B9 | smallest scope; closes the "any tool can call `.save(`" hole (§3, consequence 1) | the 23 tools stay token-free; `activeDocument` edits remain possible (G6); the body scan is pattern-based (spec limitation 16) |
 | **D2-d. Defer all of 7C to B9** | B9 makes `document_id` required, then tokens can be bound meaningfully | binds tokens to something real instead of `null` | B8 ends with 23 ungated tools; the "legacy pass-through" remains until B9 |
 
-D2 depends partly on D1 (a body scan in `compose.ts` and `scriptClass` both live in `wrapExtendScript`).
+**Decision (2026-10-17): D2-d.** 7C is deferred to B9. B8 ends with the 23 tools ungated and G5 open (§5). D2-a, D2-b and D2-c are not implemented; the table above is kept as the record of the alternatives.
+
+D2 depended partly on D1 (a body scan in `compose.ts` and `scriptClass` both live in `wrapExtendScript`).
 
 ### Other open decisions
 

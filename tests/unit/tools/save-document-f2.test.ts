@@ -12,8 +12,9 @@
  *   F*       failure handling: exception before dispatch on path B, transport
  *            envelope failure, transport throw, registry state, retry
  *            (F2-3, F2-7, F2-8).
- *   C*       competing requests to the same path (F2-7); expectations reflect S2,
- *            where sendWriteScript no longer records a temporary "owned".
+ *   C*       competing requests to the same path (F2-7). save_document runs calls one at a
+ *            time (write-mutex), so a competing request waits for the earlier one and then
+ *            decides on the registry state the earlier one left behind.
  *
  * The tamper layer wraps sendWriteScript and ALWAYS delegates to the real one.
  */
@@ -31,6 +32,24 @@ import { Script } from "node:vm";
 vi.mock("../../../src/transport/result-file.js", () => ({
   runScriptWithResultFile: vi.fn(),
 }));
+
+// Makes unlinkSync fail for ONE path with EACCES, whatever user runs the tests (a read-only
+// directory would not stop root). write-guard.ts's cleanupPlaceholder imports unlinkSync from
+// "node:fs", so it sees this fault; it swallows the error exactly as it would a real one.
+const fsFault = vi.hoisted(() => ({ failUnlinkOf: null as string | null }));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    unlinkSync: ((p: unknown, ...rest: unknown[]) => {
+      if (fsFault.failUnlinkOf !== null && String(p) === fsFault.failUnlinkOf) {
+        throw Object.assign(new Error(`EACCES: permission denied, unlink '${String(p)}'`), { code: "EACCES" });
+      }
+      return (actual.unlinkSync as (...a: unknown[]) => void)(p, ...rest);
+    }) as typeof actual.unlinkSync,
+  };
+});
 
 const hook = vi.hoisted(() => ({
   /** Runs after decideWrite (and reservePlaceholder), before the real sendWriteScript. */
@@ -75,6 +94,7 @@ beforeEach(() => {
   hook.beforeSend = null;
   hook.duringSend = null;
   hook.throwBeforeSend = false;
+  fsFault.failUnlinkOf = null;
   wg.registryReset();
   dir = realpathSync(mkdtempSync(join(tmpdir(), "b8-f2-")));
 });
@@ -125,6 +145,16 @@ function seedOwned(path: string, key: string) {
   wg.registrySet(key, record);
   return record;
 }
+
+/** A failure that PROVES the save script never reached doc.save (the script's own pre-save check). */
+const preSaveFailure = {
+  ok: false,
+  error: {
+    kind: "io_error",
+    entity: "save_precheck",
+    message: "document changed between query and save: expected fullName , found /elsewhere.indd",
+  },
+};
 
 function sleepMs(ms: number) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -203,6 +233,7 @@ describe("save script — path A (F2-1, F2-2, F2-5)", () => {
     const { env, saves } = runScript(tpl, { fullName: "/Users/x/other.indd", target: { exists: true, length: 0 } });
     expect(env.ok).toBe(false);
     expect(env.error.kind).toBe("io_error");
+    expect(env.error.entity).toBe("save_precheck"); // proof that nothing was written
     expect(saves).toEqual([]);
   });
 
@@ -212,6 +243,7 @@ describe("save script — path A (F2-1, F2-2, F2-5)", () => {
       const { env, saves } = runScript(tpl, { fullName: "", target });
       expect(env.ok).toBe(false);
       expect(env.error.kind).toBe("name_collision");
+      expect(env.error.entity).toBe("save_precheck");
       expect(saves).toEqual([]);
     }
   });
@@ -221,6 +253,7 @@ describe("save script — path A (F2-1, F2-2, F2-5)", () => {
     const { env, saves } = runScript(tpl, { fullName: "", documents: "closed", target: { exists: true, length: 0 } });
     expect(env.ok).toBe(false);
     expect(env.error.kind).toBe("not_found");
+    expect(env.error.entity).toBe("document"); // findDocumentById runs before doc.save
     expect(saves).toEqual([]);
   });
 });
@@ -253,6 +286,7 @@ describe("save script — path B (F2-1, F2-2, F2-5)", () => {
       const { env, saves } = runScript(tpl, sim);
       expect(env.ok).toBe(false);
       expect(env.error.kind).toBe(kind);
+      expect(env.error.entity).toBe("save_precheck");
       expect(saves).toEqual([]);
     }
   });
@@ -402,23 +436,24 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     expect(next.reason).toBe("uncertain");
   });
 
-  it("F4: path A — transport envelope failure → not 'owned', placeholder removed", async () => {
+  it("F4: path A — a failure that PROVES nothing was written → not 'owned', placeholder removed", async () => {
     const { path, key } = newPath();
     preQueryOnly("");
-    mockRun.mockResolvedValueOnce({ ok: false, error: { kind: "io_error", message: "boom" } } as never);
+    mockRun.mockResolvedValueOnce(preSaveFailure as never);
 
-    failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ path }));
 
+    expect(error.message).not.toContain("was left in place");
     expect(wg.registryGet(key)?.state).toBe("uncertain");
-    await vi.waitFor(() => expect(existsSync(path)).toBe(false));
+    expect(existsSync(path)).toBe(false); // removal is synchronous
   });
 
-  it("F5: path A — retry after the envelope failure succeeds with a fresh decision", async () => {
+  it("F5: path A — retry after a provable pre-save failure succeeds with a fresh decision", async () => {
     const { path, key } = newPath();
     preQueryOnly("");
-    mockRun.mockResolvedValueOnce({ ok: false, error: { kind: "io_error", message: "boom" } } as never);
+    mockRun.mockResolvedValueOnce(preSaveFailure as never);
     failure(await saveDocumentTool.handler({ path }));
-    await vi.waitFor(() => expect(existsSync(path)).toBe(false));
+    expect(existsSync(path)).toBe(false);
 
     queueSaveAs(path);
     const retry = await saveDocumentTool.handler({ path });
@@ -427,7 +462,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     expect(wg.registryGet(key)?.state).toBe("owned");
   });
 
-  it("F6: path A — the transport throws → uncertain, placeholder removed, normal error", async () => {
+  it("F6: path A — the transport throws after dispatch → outcome UNKNOWN: placeholder kept, uncertain, error says so", async () => {
     const { path, key } = newPath();
     preQueryOnly("");
     mockRun.mockRejectedValueOnce(new Error("osascript died"));
@@ -436,171 +471,162 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
 
     expect(error.kind).toBe("io_error");
     expect(error.reason).toBe("uncertain");
+    expect(error.message).toContain("was left in place");
     expect(wg.registryGet(key)?.state).toBe("uncertain");
-    await vi.waitFor(() => expect(existsSync(path)).toBe(false));
+    expect(existsSync(path)).toBe(true); // not removed: the write may still be running
   });
 });
 
 // ── C: competing requests to the same path (F2-7) ───────────────────────────
+// save_document serializes its calls: the second request does not even run its pre-query
+// until the first has finished, then decides on what the first one left in the registry.
 
-describe("competing requests to the same path — no temporary 'owned' state (F2-7, after S2)", () => {
+describe("competing requests to the same path — serialized by the save lock (F2-7)", () => {
   function deferred<T>() {
     let resolve!: (v: T) => void;
     const promise = new Promise<T>((r) => { resolve = r; });
     return { promise, resolve };
   }
   const isWrite = (o: unknown) => (o as { scriptTemplate: string }).scriptTemplate.includes("doc.save(File(");
-  const writeCount = () => mockRun.mock.calls.filter((c) => isWrite(c[0])).length;
   const failedEnvelope = { ok: false, error: { kind: "io_error", message: "script failed inside InDesign" } };
+  const settle = () => new Promise((r) => setTimeout(r, 40)); // real timers: lets a wrongly-started request show itself
 
-  /**
-   * R1 save-as fails inside InDesign. R2 (same path) is started while R1 is in its send,
-   * and both are released in the SAME tick, R1's result first, so R2's decideWrite runs
-   * BEFORE R1's tool code has corrected anything or removed the placeholder. Since S2,
-   * sendWriteScript itself records "uncertain" for an ok:false envelope, so R2 sees
-   * "uncertain" from the first moment (before S2 it saw a temporary "owned").
-   */
-  async function raceInWindow(opts: { secondDocumentId: string; beforeFirstSend?: (dir: string) => void }) {
-    const { path, key } = newPath();
-    const d1 = deferred<unknown>();
-    const d2 = deferred<unknown>();
+  /** Transport calls, in order: "pre" = query, "write" = save script. */
+  function installTransport(opts: { documentIds: string[]; fullName: string; firstWrite: Promise<unknown>; otherWrites?: unknown }) {
+    const log: string[] = [];
+    const writeScripts: string[] = [];
+    let pres = 0;
     let writes = 0;
-    let preQueries = 0;
     mockRun.mockImplementation(((o: { scriptTemplate: string }) => {
       if (isWrite(o)) {
+        log.push("write");
+        writeScripts.push(o.scriptTemplate);
         writes++;
-        return writes === 1 ? d1.promise : Promise.resolve({ ok: true, result: { path } });
+        return writes === 1 ? opts.firstWrite : Promise.resolve(opts.otherWrites ?? { ok: true, result: { path: "x" } });
       }
-      preQueries++;
-      return preQueries === 1
-        ? Promise.resolve({ ok: true, result: { documentId: "42", fullName: "" } })
-        : d2.promise;
+      log.push("pre");
+      const documentId = opts.documentIds[Math.min(pres, opts.documentIds.length - 1)];
+      pres++;
+      return Promise.resolve({ ok: true, result: { documentId, fullName: opts.fullName } });
     }) as never);
-    if (opts.beforeFirstSend) hook.beforeSend = () => opts.beforeFirstSend!(dir);
-
-    const r1 = saveDocumentTool.handler({ path });
-    await vi.waitFor(() => expect(writes).toBe(1)); // R1 is inside its send; record is "pending"
-    hook.beforeSend = null;
-    const r2 = saveDocumentTool.handler({ path });
-    await vi.waitFor(() => expect(preQueries).toBe(2));
-
-    d1.resolve(failedEnvelope);
-    d2.resolve({ ok: true, result: { documentId: opts.secondDocumentId, fullName: "" } });
-    const [e1, e2] = await Promise.all([r1, r2]);
-    return { path, key, e1, e2 };
+    return { log, writeScripts, writes: () => writes };
   }
 
-  it("C0: two simultaneous save-as to a free path → exactly one write script; the other is refused", async () => {
+  /** R1 save-as (path A) fails inside InDesign; R2 (same path) is queued behind it. */
+  async function secondQueuedBehindFailingFirst(opts: { secondDocumentId: string; beforeFirstSend?: (placeholderPath: string) => void }) {
     const { path, key } = newPath();
-    mockRun.mockImplementation(((o: { scriptTemplate: string }) =>
-      Promise.resolve(
-        isWrite(o)
-          ? { ok: true, result: { path } }
-          : { ok: true, result: { documentId: "42", fullName: "" } },
-      )) as never);
+    const first = deferred<unknown>();
+    const t = installTransport({ documentIds: ["42", opts.secondDocumentId], fullName: "", firstWrite: first.promise });
+    if (opts.beforeFirstSend) hook.beforeSend = (p) => opts.beforeFirstSend!(p);
+
+    const r1 = saveDocumentTool.handler({ path });
+    await vi.waitFor(() => expect(t.writes()).toBe(1)); // R1 is inside its send; the record is "pending"
+    hook.beforeSend = null;
+    const r2 = saveDocumentTool.handler({ path });
+    await settle();
+    expect(t.log).toEqual(["pre", "write"]); // R2 has not started: not even its pre-query
+
+    first.resolve(preSaveFailure); // a failure that proves nothing was written: the placeholder is cleaned up
+    const [e1, e2] = await Promise.all([r1, r2]);
+    return { path, key, e1, e2, t };
+  }
+
+  it("C0: two simultaneous save-as to a free path run one after the other; the second is a path-B save of the first's file", async () => {
+    const { path, key } = newPath();
+    const t = installTransport({ documentIds: ["42"], fullName: "", firstWrite: Promise.resolve({ ok: true, result: { path } }) });
 
     const [a, b] = await Promise.all([saveDocumentTool.handler({ path }), saveDocumentTool.handler({ path })]);
 
-    expect(writeCount()).toBe(1);
-    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
-    expect(["io_error", "name_collision"]).toContain(failure(a.ok ? b : a).kind);
+    expect([a.ok, b.ok]).toEqual([true, true]);
+    expect(t.log).toEqual(["pre", "write", "pre", "write"]); // strictly sequential, never "pre", "pre"
+    expect(t.writeScripts[0]).toContain("empty reserved placeholder"); // path A
+    expect(t.writeScripts[1]).toContain("missing or changed size"); // path B: the first call's file is now owned
     expect(wg.registryGet(key)?.state).toBe("owned");
   });
 
-  it("C1: a DIFFERENT document arriving in the window is refused and writes nothing", async () => {
-    const { key, e1, e2 } = await raceInWindow({ secondDocumentId: "43" });
+  // A failed save-as removes its own placeholder BEFORE the lock is released, so the queued request
+  // finds a free path and is an ordinary new save-as (exactly what two sequential calls would do).
+  it("C1: a DIFFERENT document queued behind a failing save-as finds the path free and saves normally (path A)", async () => {
+    const { key, e1, e2, t } = await secondQueuedBehindFailingFirst({ secondDocumentId: "43" });
 
-    expect(failure(e1).kind).toBe("io_error"); // R1's own failure
-    const second = failure(e2);
-    expect(second.kind).toBe("name_collision");
-    expect(second.reason).toBe("uncertain"); // R2 saw "uncertain", never "owned" (before S2: document_mismatch)
-    expect(writeCount()).toBe(1); // only R1 ever sent a write script
-    expect(wg.registryGet(key)?.state).toBe("uncertain");
+    expect(failure(e1).kind).toBe("io_error"); // the first call's own failure
+    expect(e2.ok).toBe(true);
+    expect(t.log).toEqual(["pre", "write", "pre", "write"]); // second ran only after the first had finished and cleaned up
+    expect(t.writeScripts[1]).toContain("empty reserved placeholder"); // a fresh path-A save, not a takeover of a leftover
+    expect(wg.registryGet(key)?.state).toBe("owned");
+    expect(wg.registryGet(key)?.documentId).toBe("43");
   });
 
-  it("C2: the SAME document in the window is refused as path C (uncertain); no path-B decision is issued from a temporary state", async () => {
-    const { path, key, e1, e2 } = await raceInWindow({ secondDocumentId: "42" });
+  it("C2: the SAME document queued behind a failing save-as retries normally (path A) once the failure has cleaned up", async () => {
+    const { path, key, e1, e2, t } = await secondQueuedBehindFailingFirst({ secondDocumentId: "42" });
+
+    expect(failure(e1).kind).toBe("io_error");
+    expect(e2.ok).toBe(true);
+    expect(t.log).toEqual(["pre", "write", "pre", "write"]);
+    expect(t.writeScripts[1]).toContain("empty reserved placeholder");
+    expect(wg.registryGet(key)?.state).toBe("owned");
+    expect(existsSync(path)).toBe(true); // the second call's own placeholder (the mock transport writes nothing)
+  });
+
+  it("C3: if the placeholder cannot be removed, the queued request for the same document is still refused", async () => {
+    const { path, key, e1, e2, t } = await secondQueuedBehindFailingFirst({
+      secondDocumentId: "42",
+      beforeFirstSend: (p) => { fsFault.failUnlinkOf = p; }, // removing the placeholder will fail (EACCES), for any user
+    });
 
     expect(failure(e1).kind).toBe("io_error");
     const second = failure(e2);
     expect(second.kind).toBe("name_collision");
-    expect(second.reason).toBe("uncertain"); // before S2: a path-B decision that assertWriteAllowed then blocked
-    expect(writeCount()).toBe(1); // R2 sent nothing
+    expect(second.reason).toBe("uncertain");
+    expect(t.writes()).toBe(1);
+    expect(existsSync(path)).toBe(true); // the placeholder really could not be removed
     expect(wg.registryGet(key)?.state).toBe("uncertain");
-    expect(existsSync(path)).toBe(false); // R1's tool removed its own placeholder
   });
 
-  it("C3: the earlier residual is closed — if the placeholder cannot be removed, the SAME document's competing request is still refused", async () => {
-    let restore: (() => void) | undefined;
-    try {
-      const { path, key, e1, e2 } = await raceInWindow({
-        secondDocumentId: "42",
-        beforeFirstSend: (d) => { chmodSync(d, 0o500); restore = () => chmodSync(d, 0o700); }, // unlink will fail
-      });
-
-      expect(failure(e1).kind).toBe("io_error");
-      const second = failure(e2);
-      expect(second.kind).toBe("name_collision");
-      expect(second.reason).toBe("uncertain");
-      expect(writeCount()).toBe(1); // before S2 this was 2: R2 saved into the leftover placeholder
-      expect(existsSync(path)).toBe(true); // the placeholder really could not be removed
-      expect(wg.registryGet(key)?.state).toBe("uncertain");
-    } finally {
-      restore?.();
-    }
-  });
-
-  /**
-   * Two concurrent in-place saves of the same owned file both receive a path-B decision (same
-   * fingerprint) and both pass the guard; the second one's pending record replaces the first's.
-   * The first writer's write is held in flight; the second writer completes first.
-   */
-  async function twoConcurrentInPlaceSaves(secondWriterSucceeds: boolean) {
+  /** Two in-place saves of the same owned file; the first one's write is held in flight. */
+  async function twoInPlaceSaves(opts: { firstSucceeds: boolean }) {
     const { path, key } = newPath();
-    const seed = seedOwned(path, key);
-    let release!: (v: unknown) => void;
-    const firstWrite = new Promise((r) => { release = r; });
-    let writes = 0;
-    mockRun.mockImplementation(((o: { scriptTemplate: string }) => {
-      if (!isWrite(o)) return Promise.resolve({ ok: true, result: { documentId: "42", fullName: path } });
-      writes++;
-      if (writes === 1) return firstWrite; // first writer stays in flight
-      return Promise.resolve(secondWriterSucceeds ? { ok: true, result: { path } } : failedEnvelope);
-    }) as never);
-    if (secondWriterSucceeds) {
-      let sends = 0;
-      hook.duringSend = (p) => { if (++sends === 2) appendFileSync(p, "SAVED-BY-SECOND"); }; // InDesign really saves
-    }
+    const seed = seedOwned(path, key); // "0123456789" = 10 bytes
+    const first = deferred<unknown>();
+    const t = installTransport({ documentIds: ["42"], fullName: path, firstWrite: first.promise });
+    let sends = 0;
+    hook.duringSend = (p) => { if (++sends === 2) appendFileSync(p, "SAVED-BY-SECOND"); };
 
-    const first = saveDocumentTool.handler({});
-    const second = saveDocumentTool.handler({});
-    await vi.waitFor(() => expect(writes).toBe(2)); // both passed the guard
-    return { path, key, seed, first, second, releaseFirstWithFailure: () => release(failedEnvelope) };
+    const r1 = saveDocumentTool.handler({});
+    await vi.waitFor(() => expect(t.writes()).toBe(1));
+    const r2 = saveDocumentTool.handler({});
+    await settle();
+    expect(t.log).toEqual(["pre", "write"]); // the second call waits; it has not queried anything yet
+
+    if (opts.firstSucceeds) {
+      appendFileSync(path, "SAVED-BY-FIRST"); // InDesign really saved: 10 + 14 = 24 bytes
+      first.resolve({ ok: true, result: { path } });
+    } else {
+      first.resolve(failedEnvelope);
+    }
+    const [e1, e2] = await Promise.all([r1, r2]);
+    return { path, key, seed, e1, e2, t };
   }
 
-  it("C4: the first writer fails AFTER the second succeeded → the second writer's owned record is not overwritten", async () => {
-    const { path, key, seed, first, second, releaseFirstWithFailure } = await twoConcurrentInPlaceSaves(true);
-    await vi.waitFor(() => expect(wg.registryGet(key)?.state).toBe("owned")); // the second writer recorded ownership
-    const ownedByWinner = wg.registryGet(key);
-    expect(ownedByWinner?.fingerprint.size).toBeGreaterThan(seed.fingerprint.size);
+  it("C4: the first save fails → the queued second save is refused (uncertain) and the record keeps the verified fingerprint", async () => {
+    const { key, seed, e1, e2, t } = await twoInPlaceSaves({ firstSucceeds: false });
 
-    releaseFirstWithFailure();
-    const [r1, r2] = await Promise.all([first, second]);
-
-    expect([r1.ok, r2.ok].sort()).toEqual([false, true]); // one failed, one succeeded
-    expect(wg.registryGet(key)).toBe(ownedByWinner); // the very same record: not replaced, not downgraded
-    expect(wg.registryGet(key)?.state).toBe("owned");
-    expect(wg.registryGet(key)?.fingerprint.size).toBe(lstatSync(path).size); // still matches the file on disk
+    expect(failure(e1).kind).toBe("io_error");
+    const second = failure(e2);
+    expect(second.kind).toBe("name_collision");
+    expect(second.reason).toBe("uncertain");
+    expect(t.log).toEqual(["pre", "write", "pre"]); // the second wrote nothing
+    expect(wg.registryGet(key)?.state).toBe("uncertain");
+    expect(wg.registryGet(key)?.fingerprint).toEqual(seed.fingerprint); // never refreshed from disk
   });
 
-  it("C5: both writers fail → the record ends uncertain, never owned", async () => {
-    const { key, first, second, releaseFirstWithFailure } = await twoConcurrentInPlaceSaves(false);
-    await vi.waitFor(() => expect(wg.registryGet(key)?.state).toBe("uncertain")); // second writer's failure recorded
+  it("C5: the first save succeeds → the second one proceeds with the UPDATED fingerprint and ends owned", async () => {
+    const { path, key, e1, e2, t } = await twoInPlaceSaves({ firstSucceeds: true });
 
-    releaseFirstWithFailure();
-    const [r1, r2] = await Promise.all([first, second]);
-
-    expect([r1.ok, r2.ok]).toEqual([false, false]);
-    expect(wg.registryGet(key)?.state).toBe("uncertain");
+    expect([e1.ok, e2.ok]).toEqual([true, true]);
+    expect(t.log).toEqual(["pre", "write", "pre", "write"]); // strictly sequential
+    expect(t.writeScripts[1]).toContain("__target.length !== 24"); // expects the size the FIRST save left (10 + 14), not the original 10
+    expect(wg.registryGet(key)?.state).toBe("owned");
+    expect(wg.registryGet(key)?.fingerprint.size).toBe(lstatSync(path).size); // 39: the second save's result
   });
 });

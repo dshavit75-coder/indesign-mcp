@@ -14,12 +14,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync, realpathSync, writeFileSync, existsSync, lstatSync, unlinkSync,
-  symlinkSync, readFileSync, rmSync, mkdirSync, chmodSync,
+  symlinkSync, readFileSync, rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const lstatOverride = vi.hoisted(() => ({ patch: null as null | Record<string, number> }));
+// Makes unlinkSync fail for ONE path with EACCES, whatever user runs the tests (a read-only
+// directory would not stop root). cleanupPlaceholder imports unlinkSync from "node:fs", so it
+// sees this fault and swallows it exactly as it would a real one.
+const fsFault = vi.hoisted(() => ({ failUnlinkOf: null as string | null }));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
@@ -29,6 +33,12 @@ vi.mock("node:fs", async (importOriginal) => {
       if (lstatOverride.patch === null || !st) return st;
       return Object.assign(Object.create(Object.getPrototypeOf(st)), st, lstatOverride.patch);
     }) as typeof actual.lstatSync,
+    unlinkSync: ((p: unknown, ...rest: unknown[]) => {
+      if (fsFault.failUnlinkOf !== null && String(p) === fsFault.failUnlinkOf) {
+        throw Object.assign(new Error(`EACCES: permission denied, unlink '${String(p)}'`), { code: "EACCES" });
+      }
+      return (actual.unlinkSync as (...a: unknown[]) => void)(p, ...rest);
+    }) as typeof actual.unlinkSync,
   };
 });
 
@@ -44,6 +54,7 @@ let n = 0;
 beforeEach(() => {
   registryReset();
   lstatOverride.patch = null;
+  fsFault.failUnlinkOf = null;
   dir = realpathSync(mkdtempSync(join(tmpdir(), "b8-f2g-")));
 });
 
@@ -285,18 +296,18 @@ describe("cleanupPlaceholder — ownership proof (F2-6) and synchronous deletion
     expect(() => cleanupPlaceholder(path, 1)).not.toThrow();
   });
 
-  it("G-C6: an unlink error (read-only directory) is swallowed and the file stays", () => {
-    const sub = join(dir, "ro");
-    mkdirSync(sub);
-    const path = join(sub, "p_cod.indd");
+  it("G-C6: an unlink error (EACCES, injected) is swallowed and the file stays", () => {
+    const { path } = newName();
     const r = reservePlaceholder(path);
     if (!r.ok) throw new Error("setup");
-    chmodSync(sub, 0o500);
-    try {
-      expect(() => cleanupPlaceholder(path, r.fingerprint.ino)).not.toThrow();
-      expect(existsSync(path)).toBe(true);
-    } finally {
-      chmodSync(sub, 0o700);
-    }
+    fsFault.failUnlinkOf = path; // removing exactly this file fails, for any user
+
+    expect(() => cleanupPlaceholder(path, r.fingerprint.ino)).not.toThrow();
+
+    expect(existsSync(path)).toBe(true); // it was ours (same inode, empty): the removal really failed
+    expect(lstatSync(path).size).toBe(0);
+    fsFault.failUnlinkOf = null;
+    cleanupPlaceholder(path, r.fingerprint.ino); // and without the fault the same call removes it
+    expect(existsSync(path)).toBe(false);
   });
 });

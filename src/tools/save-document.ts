@@ -15,7 +15,8 @@ import {
   registrySet,
   type SendFn,
 } from "../write-guard.js";
-import { lstatSync } from "node:fs";
+import { lstatSync, type Stats } from "node:fs";
+import { WriteMutex } from "../write-mutex.js";
 
 // ---------------------------------------------------------------------------
 // Input / Output schemas
@@ -96,22 +97,22 @@ function buildSaveScript(
   const targetCheck =
     checks.mode === "A"
       ? `if (!__target.exists || __target.length !== 0) {
-  throw { name: "name_collision", message: "target is not the empty reserved placeholder: " + ${lit(absolutePath)} };
+  throw { name: "name_collision", entity: "save_precheck", message: "target is not the empty reserved placeholder: " + ${lit(absolutePath)} };
 }`
       : `if (!__target.exists || __target.length !== ${checks.expectedSize}) {
-  throw { name: "name_collision", message: "target file is missing or changed size: " + ${lit(absolutePath)} };
+  throw { name: "name_collision", entity: "save_precheck", message: "target file is missing or changed size: " + ${lit(absolutePath)} };
 }`;
 
   return `
 ${prelude(findDocumentById)}
 var doc = ${docExpr};
 if (doc === null) {
-  throw { name: "not_found", message: "document not found during save: " + ${lit(documentId)} };
+  throw { name: "not_found", entity: "save_precheck", message: "document not found during save: " + ${lit(documentId)} };
 }
 var __fullName = "";
 try { __fullName = String(doc.fullName); } catch (e) { __fullName = ""; }
 if (__fullName !== ${lit(checks.expectedFullName)}) {
-  throw { name: "io_error", message: "document changed between query and save: expected fullName " + ${lit(checks.expectedFullName)} + ", found " + __fullName };
+  throw { name: "io_error", entity: "save_precheck", message: "document changed between query and save: expected fullName " + ${lit(checks.expectedFullName)} + ", found " + __fullName };
 }
 var __target = File(${lit(absolutePath)});
 ${targetCheck}
@@ -120,11 +121,98 @@ return { path: String(doc.fullName) };
 `;
 }
 
+/**
+ * `entity` carried by the errors that buildSaveScript throws BEFORE it calls doc.save.
+ * It is the script's own proof that nothing was written.
+ */
+const SAVE_PRECHECK_ENTITY = "save_precheck";
+
+/**
+ * True only when a failure envelope PROVES the save script never reached doc.save, so the
+ * path-A placeholder may safely be removed. Everything else is unknown: the write may have
+ * started or may still be running inside InDesign.
+ *
+ *   - our own pre-save checks (document swapped, target not the empty placeholder, ...);
+ *   - findDocumentById did not find the document (it runs before doc.save);
+ *   - osascript could not even be spawned, so the script never ran.
+ *
+ * Deliberately NOT proof: timeout, script_error, app_not_available, and any other io_error
+ * (for example a result file that could not be read after the script ran).
+ */
+function envelopeProvesNoWrite(error: { kind: string; message: string; entity?: string }): boolean {
+  if (error.entity === SAVE_PRECHECK_ENTITY) return true;
+  if (error.kind === "not_found" && error.entity === "document") return true;
+  if (error.kind === "io_error" && error.message.startsWith("osascript spawn failed:")) return true;
+  return false;
+}
+
+function unknownOutcomeHint(path: string): string {
+  return (
+    `The outcome of the save is unknown, so the reserved file ${path} was left in place and this path ` +
+    "is blocked for further saves. Check the file, then remove it manually or save under another name."
+  );
+}
+
+/**
+ * What actually happened when we tried to remove the path-A placeholder.
+ *   removed      we removed our empty placeholder
+ *   already_gone nothing was there any more
+ *   failed       it is still ours (same inode, empty) but could not be removed
+ *   not_ours     something else is there now (replaced, has content, symlink): left untouched
+ */
+type CleanupOutcome = "removed" | "already_gone" | "failed" | "not_ours";
+
+function statOrNull(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** Same ownership test cleanupPlaceholder applies before it removes anything. */
+function isOurEmptyPlaceholder(st: Stats, inode: number): boolean {
+  return st.isFile() && st.size === 0 && st.ino === inode;
+}
+
+/**
+ * Remove our placeholder through cleanupPlaceholder (unchanged: it removes only the same empty
+ * inode and swallows errors) and report what really happened. A file that is no longer our empty
+ * placeholder is not touched at all.
+ */
+function cleanUpPlaceholder(path: string, inode: number): CleanupOutcome {
+  const before = statOrNull(path);
+  if (before !== null && !isOurEmptyPlaceholder(before, inode)) return "not_ours";
+  cleanupPlaceholder(path, inode);
+  const after = statOrNull(path);
+  if (after === null) return before === null ? "already_gone" : "removed";
+  // Something is there now. The removal "failed" only if what is there is still OUR empty
+  // placeholder (same inode); anything else (replaced meanwhile, created by someone else,
+  // or there although nothing was before) is not ours and was not touched.
+  return before !== null && isOurEmptyPlaceholder(after, inode) ? "failed" : "not_ours";
+}
+
+/** The sentence to add to the original error when the clean-up left a file behind (else undefined). */
+function cleanupNote(outcome: CleanupOutcome, path: string): string | undefined {
+  if (outcome === "failed") {
+    return `The reserved file ${path} could not be removed and is still in place; this path stays blocked for further saves until it is removed manually.`;
+  }
+  if (outcome === "not_ours") {
+    return `The reserved file ${path} was not removed because it is no longer the empty file this call reserved (it was replaced or now has content); this path stays blocked for further saves until it is checked.`;
+  }
+  return undefined; // removed or already gone: nothing to add
+}
+
+function withNote(message: string, note: string | undefined): string {
+  return note === undefined ? message : `${message}. ${note}`;
+}
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-export const saveDocumentTool = defineTool<Input, { path: string }>({
+// The unlocked tool: its handler body is unchanged. saveDocumentTool below runs it one call at a time.
+const saveDocumentUnlocked = defineTool<Input, { path: string }>({
   name: "save_document",
   description:
     "Saves an InDesign document to disk. " +
@@ -222,12 +310,18 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
       // runScriptWithResultFile actually returns at runtime (Promise<Envelope<T>>).
       // sendWriteScript<Envelope<ScriptResult>> stores the Envelope as result: R,
       // so sendResult.result is already Envelope<ScriptResult> — return it directly.
-      const sendFn: SendFn<Envelope<ScriptResult>> = (opts) =>
-        runScriptWithResultFile<ScriptResult>({
+      // `dispatched` records whether the script was handed to the transport at all. If it was
+      // not, nothing can have been written; if it was, the outcome is only known when the
+      // failure envelope proves it (see envelopeProvesNoWrite).
+      let dispatched = false;
+      const sendFn: SendFn<Envelope<ScriptResult>> = (opts) => {
+        dispatched = true;
+        return runScriptWithResultFile<ScriptResult>({
           language: "JavaScript",
           scriptTemplate: opts.scriptTemplate,
           resultSchema: ScriptResultSchema,
         });
+      };
 
       let sendResult: Awaited<ReturnType<typeof sendWriteScript<Envelope<ScriptResult>>>>;
       try {
@@ -251,17 +345,27 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
           (body, cap, op) => wrapExtendScript(body, { _writeCapability: cap, operation: op }),
         );
       } catch (err: unknown) {
-        // sendWriteScript threw before dispatching (e.g. operation_body_mismatch).
-        // Nothing was sent and the registry was not touched: remove our
-        // placeholder (same inode, still empty) and report a normal error.
-        cleanupPlaceholder(decision.finalPath, reservedInode);
-        return fail("write_not_authorized", (err as Error).message);
+        // sendWriteScript threw. If the transport was never called (e.g. operation_body_mismatch)
+        // nothing was sent and the registry was not touched: remove our placeholder (same inode,
+        // still empty). If it was called, the outcome is unknown: leave the placeholder.
+        if (!dispatched) {
+          const outcome = cleanUpPlaceholder(decision.finalPath, reservedInode);
+          return fail("write_not_authorized", withNote((err as Error).message, cleanupNote(outcome, decision.finalPath)));
+        }
+        return fail("write_not_authorized", `${(err as Error).message}. ${unknownOutcomeHint(decision.finalPath)}`);
       }
 
       if (!sendResult.ok) {
-        // Clean up placeholder only if it is still the same 0-byte inode.
-        cleanupPlaceholder(decision.finalPath, reservedInode);
-        return fail("io_error", sendResult.message, {
+        // Refused by the guard before dispatch (transport never called): safe to clean up, and
+        // cleanupPlaceholder removes only the same empty inode. If the script was dispatched and
+        // the send then failed (transport threw), the outcome is unknown: leave the placeholder.
+        if (!dispatched) {
+          const outcome = cleanUpPlaceholder(decision.finalPath, reservedInode);
+          return fail("io_error", withNote(sendResult.message, cleanupNote(outcome, decision.finalPath)), {
+            reason: sendResult.reason as never,
+          });
+        }
+        return fail("io_error", `${sendResult.message}. ${unknownOutcomeHint(decision.finalPath)}`, {
           reason: sendResult.reason as never,
         });
       }
@@ -271,8 +375,20 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
       // Otherwise extract the inner ScriptResult and wrap in a single ok() envelope
       // to produce the expected MCP contract: { ok: true, result: { path } }.
       if (!sendResult.result.ok) {
-        cleanupPlaceholder(decision.finalPath, reservedInode);
-        return sendResult.result;
+        const failure = sendResult.result.error;
+        if (envelopeProvesNoWrite(failure)) {
+          // The script never reached doc.save: remove our placeholder and say so if it stays behind.
+          const note = cleanupNote(cleanUpPlaceholder(decision.finalPath, reservedInode), decision.finalPath);
+          if (note === undefined) return sendResult.result;
+          return { ok: false, error: { ...failure, message: withNote(failure.message, note) } };
+        }
+        // Unknown outcome (timeout, script error, unreadable result, ...): InDesign may have written
+        // the file or may still do so. Keep the placeholder: the path stays blocked (the registry
+        // record is uncertain) until it is dealt with manually.
+        return {
+          ok: false,
+          error: { ...failure, message: `${failure.message}. ${unknownOutcomeHint(decision.finalPath)}` },
+        };
       }
       return ok(sendResult.result.result!);
     }
@@ -336,5 +452,31 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
       return sendResult.result;
     }
     return ok(sendResult.result.result!);
+  },
+});
+
+/**
+ * Longest a save_document call waits for earlier save_document calls to finish. This limits
+ * WAITING only; a running save is bounded by the transport timeouts, not by this value.
+ */
+export const SAVE_LOCK_WAIT_MS = 90_000;
+
+// Concurrent MCP requests are processed in parallel, and every save_document step (query,
+// decision, send, registry update) must see the result of the previous call. All
+// save_document calls therefore run one at a time, in arrival order.
+const saveMutex = new WriteMutex();
+
+export const saveDocumentTool = defineTool<Input, { path: string }>({
+  ...saveDocumentUnlocked, // name, description and inputSchema stay exactly as defined above
+  async handler(input) {
+    const run = await saveMutex.runExclusive(() => saveDocumentUnlocked.handler(input), SAVE_LOCK_WAIT_MS);
+    if (!run.acquired) {
+      // Nothing was started: no query, no decision, no registry change.
+      return fail(
+        "timeout",
+        `another save_document call is still running; this call waited ${SAVE_LOCK_WAIT_MS / 1000} seconds and was not started`,
+      );
+    }
+    return run.value;
   },
 });

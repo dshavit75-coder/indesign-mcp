@@ -12,6 +12,8 @@
  *   F*       failure handling: exception before dispatch on path B, transport
  *            envelope failure, transport throw, registry state, retry
  *            (F2-3, F2-7, F2-8).
+ *   C*       competing requests to the same path (F2-7); expectations reflect S2,
+ *            where sendWriteScript no longer records a temporary "owned".
  *
  * The tamper layer wraps sendWriteScript and ALWAYS delegates to the real one.
  */
@@ -441,7 +443,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
 
 // ── C: competing requests to the same path (F2-7) ───────────────────────────
 
-describe("competing requests to the same path — the temporary 'owned' state (F2-7)", () => {
+describe("competing requests to the same path — no temporary 'owned' state (F2-7, after S2)", () => {
   function deferred<T>() {
     let resolve!: (v: T) => void;
     const promise = new Promise<T>((r) => { resolve = r; });
@@ -453,10 +455,10 @@ describe("competing requests to the same path — the temporary 'owned' state (F
 
   /**
    * R1 save-as fails inside InDesign. R2 (same path) is started while R1 is in its send,
-   * and both are released in the SAME tick, R1's result first. R1's continuation makes
-   * sendWriteScript record "owned" (it does not look inside the envelope); R2's decideWrite
-   * then runs BEFORE R1's tool code corrects the record to "uncertain" and removes the
-   * placeholder. So R2 really observes the temporary state.
+   * and both are released in the SAME tick, R1's result first, so R2's decideWrite runs
+   * BEFORE R1's tool code has corrected anything or removed the placeholder. Since S2,
+   * sendWriteScript itself records "uncertain" for an ok:false envelope, so R2 sees
+   * "uncertain" from the first moment (before S2 it saw a temporary "owned").
    */
   async function raceInWindow(opts: { secondDocumentId: string; beforeFirstSend?: (dir: string) => void }) {
     const { path, key } = newPath();
@@ -505,30 +507,30 @@ describe("competing requests to the same path — the temporary 'owned' state (F
     expect(wg.registryGet(key)?.state).toBe("owned");
   });
 
-  it("C1: a DIFFERENT document arriving in the window is refused (document_mismatch) and writes nothing", async () => {
+  it("C1: a DIFFERENT document arriving in the window is refused and writes nothing", async () => {
     const { key, e1, e2 } = await raceInWindow({ secondDocumentId: "43" });
 
     expect(failure(e1).kind).toBe("io_error"); // R1's own failure
     const second = failure(e2);
     expect(second.kind).toBe("name_collision");
-    expect(second.reason).toBe("document_mismatch"); // proves R2 saw the temporary "owned" record of document 42
+    expect(second.reason).toBe("uncertain"); // R2 saw "uncertain", never "owned" (before S2: document_mismatch)
     expect(writeCount()).toBe(1); // only R1 ever sent a write script
-    expect(wg.registryGet(key)?.state).toBe("uncertain"); // and it ended uncertain
+    expect(wg.registryGet(key)?.state).toBe("uncertain");
   });
 
-  it("C2: the SAME document in the window is granted path B from the temporary state, but the guard's second check blocks the write", async () => {
+  it("C2: the SAME document in the window is refused as path C (uncertain); no path-B decision is issued from a temporary state", async () => {
     const { path, key, e1, e2 } = await raceInWindow({ secondDocumentId: "42" });
 
     expect(failure(e1).kind).toBe("io_error");
     const second = failure(e2);
-    expect(second.reason).toBe("fingerprint_mismatch");
-    expect(second.message).toContain("disappeared"); // path-B decision was issued, then assertWriteAllowed found the placeholder gone
+    expect(second.kind).toBe("name_collision");
+    expect(second.reason).toBe("uncertain"); // before S2: a path-B decision that assertWriteAllowed then blocked
     expect(writeCount()).toBe(1); // R2 sent nothing
     expect(wg.registryGet(key)?.state).toBe("uncertain");
-    expect(existsSync(path)).toBe(false);
+    expect(existsSync(path)).toBe(false); // R1's tool removed its own placeholder
   });
 
-  it("C3: CHARACTERIZATION (residual) — if the placeholder cannot be removed, the SAME document's competing request writes into it", async () => {
+  it("C3: the earlier residual is closed — if the placeholder cannot be removed, the SAME document's competing request is still refused", async () => {
     let restore: (() => void) | undefined;
     try {
       const { path, key, e1, e2 } = await raceInWindow({
@@ -537,12 +539,68 @@ describe("competing requests to the same path — the temporary 'owned' state (F
       });
 
       expect(failure(e1).kind).toBe("io_error");
-      expect(writeCount()).toBe(2); // R2 was allowed to save into the leftover EMPTY placeholder of the same document
-      expect(e2.ok).toBe(true);
-      expect(existsSync(path)).toBe(true);
-      expect(wg.registryGet(key)?.documentId).toBe("42"); // never another document, never a foreign file
+      const second = failure(e2);
+      expect(second.kind).toBe("name_collision");
+      expect(second.reason).toBe("uncertain");
+      expect(writeCount()).toBe(1); // before S2 this was 2: R2 saved into the leftover placeholder
+      expect(existsSync(path)).toBe(true); // the placeholder really could not be removed
+      expect(wg.registryGet(key)?.state).toBe("uncertain");
     } finally {
       restore?.();
     }
+  });
+
+  /**
+   * Two concurrent in-place saves of the same owned file both receive a path-B decision (same
+   * fingerprint) and both pass the guard; the second one's pending record replaces the first's.
+   * The first writer's write is held in flight; the second writer completes first.
+   */
+  async function twoConcurrentInPlaceSaves(secondWriterSucceeds: boolean) {
+    const { path, key } = newPath();
+    const seed = seedOwned(path, key);
+    let release!: (v: unknown) => void;
+    const firstWrite = new Promise((r) => { release = r; });
+    let writes = 0;
+    mockRun.mockImplementation(((o: { scriptTemplate: string }) => {
+      if (!isWrite(o)) return Promise.resolve({ ok: true, result: { documentId: "42", fullName: path } });
+      writes++;
+      if (writes === 1) return firstWrite; // first writer stays in flight
+      return Promise.resolve(secondWriterSucceeds ? { ok: true, result: { path } } : failedEnvelope);
+    }) as never);
+    if (secondWriterSucceeds) {
+      let sends = 0;
+      hook.duringSend = (p) => { if (++sends === 2) appendFileSync(p, "SAVED-BY-SECOND"); }; // InDesign really saves
+    }
+
+    const first = saveDocumentTool.handler({});
+    const second = saveDocumentTool.handler({});
+    await vi.waitFor(() => expect(writes).toBe(2)); // both passed the guard
+    return { path, key, seed, first, second, releaseFirstWithFailure: () => release(failedEnvelope) };
+  }
+
+  it("C4: the first writer fails AFTER the second succeeded → the second writer's owned record is not overwritten", async () => {
+    const { path, key, seed, first, second, releaseFirstWithFailure } = await twoConcurrentInPlaceSaves(true);
+    await vi.waitFor(() => expect(wg.registryGet(key)?.state).toBe("owned")); // the second writer recorded ownership
+    const ownedByWinner = wg.registryGet(key);
+    expect(ownedByWinner?.fingerprint.size).toBeGreaterThan(seed.fingerprint.size);
+
+    releaseFirstWithFailure();
+    const [r1, r2] = await Promise.all([first, second]);
+
+    expect([r1.ok, r2.ok].sort()).toEqual([false, true]); // one failed, one succeeded
+    expect(wg.registryGet(key)).toBe(ownedByWinner); // the very same record: not replaced, not downgraded
+    expect(wg.registryGet(key)?.state).toBe("owned");
+    expect(wg.registryGet(key)?.fingerprint.size).toBe(lstatSync(path).size); // still matches the file on disk
+  });
+
+  it("C5: both writers fail → the record ends uncertain, never owned", async () => {
+    const { key, first, second, releaseFirstWithFailure } = await twoConcurrentInPlaceSaves(false);
+    await vi.waitFor(() => expect(wg.registryGet(key)?.state).toBe("uncertain")); // second writer's failure recorded
+
+    releaseFirstWithFailure();
+    const [r1, r2] = await Promise.all([first, second]);
+
+    expect([r1.ok, r2.ok]).toEqual([false, false]);
+    expect(wg.registryGet(key)?.state).toBe("uncertain");
   });
 });

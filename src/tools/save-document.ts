@@ -13,9 +13,7 @@ import {
   cleanupPlaceholder,
   sendWriteScript,
   registrySet,
-  type Fingerprint,
   type SendFn,
-  type WriteDecision,
 } from "../write-guard.js";
 import { lstatSync } from "node:fs";
 
@@ -120,24 +118,6 @@ ${targetCheck}
 doc.save(File(${lit(absolutePath)}));
 return { path: String(doc.fullName) };
 `;
-}
-
-const ZERO_FINGERPRINT: Fingerprint = { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 };
-
-/**
- * The transport can answer with an ok:false envelope instead of throwing, and
- * sendWriteScript (unchanged) then records the path as "owned" because it only
- * sees that the send did not throw. A failed save must not leave ownership
- * behind: mark the record "uncertain", keeping the fingerprint the decision was
- * verified against (path B) or a zero fingerprint (path A). Never refreshed.
- */
-function markUncertainAfterFailedSave(decision: WriteDecision, documentId: string): void {
-  registrySet(decision.registryKey, {
-    state: "uncertain",
-    documentId,
-    tool: "save_document",
-    fingerprint: decision.expectedFingerprint ?? ZERO_FINGERPRINT,
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +271,6 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
       // Otherwise extract the inner ScriptResult and wrap in a single ok() envelope
       // to produce the expected MCP contract: { ok: true, result: { path } }.
       if (!sendResult.result.ok) {
-        markUncertainAfterFailedSave(decision, documentId);
         cleanupPlaceholder(decision.finalPath, reservedInode);
         return sendResult.result;
       }
@@ -354,7 +333,6 @@ export const saveDocumentTool = defineTool<Input, { path: string }>({
     // sendResult.result is Envelope<ScriptResult> from the transport layer.
     // Propagate transport failures; otherwise extract and re-wrap as single envelope.
     if (!sendResult.result.ok) {
-      markUncertainAfterFailedSave(decision, documentId);
       return sendResult.result;
     }
     return ok(sendResult.result.result!);

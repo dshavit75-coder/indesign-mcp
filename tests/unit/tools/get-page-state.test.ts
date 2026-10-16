@@ -2,6 +2,35 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getPageStateTool } from "../../../src/tools/get-page-state.js";
 import { lastCall, expectFailure } from "../_helpers.js";
 
+// Tamper layer: modifies the _readToken arguments, then ALWAYS forwards to the
+// real wrapExtendScript, so the real consumeReadToken enforcement runs.
+const tamper = vi.hoisted(() => ({
+  mode: "passthrough" as "passthrough" | "forged" | "wrong_doc" | "replay",
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_readToken" in opts) {
+        if (tamper.mode === "forged") {
+          return actual.wrapExtendScript(body, { _readToken: {}, documentId: opts.documentId });
+        }
+        if (tamper.mode === "wrong_doc") {
+          return actual.wrapExtendScript(body, { _readToken: opts._readToken, documentId: "doc-B" });
+        }
+        if (tamper.mode === "replay") {
+          actual.wrapExtendScript(body, opts); // first use consumes the token
+          return actual.wrapExtendScript(body, opts); // same, already-consumed token
+        }
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
 vi.mock("../../../src/transport/result-file.js", () => ({
   runScriptWithResultFile: vi.fn(),
 }));
@@ -11,6 +40,7 @@ import { runScriptWithResultFile } from "../../../src/transport/result-file.js";
 describe("get_page_state tool", () => {
   beforeEach(() => {
     vi.mocked(runScriptWithResultFile).mockReset();
+    tamper.mode = "passthrough";
   });
 
   it("has the expected metadata", () => {
@@ -90,11 +120,10 @@ describe("get_page_state tool", () => {
 });
 
 // ── ReadToken guard tests ────────────────────────────────────────────────────
-import { issueReadToken } from "../../../src/read-capability.js";
-
 describe("get_page_state – ReadToken guard (GP-T1..T4)", () => {
   beforeEach(() => {
     vi.mocked(runScriptWithResultFile).mockReset();
+    tamper.mode = "passthrough";
   });
 
   // GP-T1: valid token with documentId = null (activeDocument path)
@@ -134,26 +163,21 @@ describe("get_page_state – ReadToken guard (GP-T1..T4)", () => {
     expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
   });
 
-  // GP-T3: forged token → consumeReadToken throws, sendFn never called
+  // GP-T3: forged token → the real consumeReadToken rejects inside the real wrapExtendScript, sendFn never called
   it("GP-T3: throws and does not call sendFn when token is forged", async () => {
-    const forgedToken = {};
-    // Directly call consumeReadToken via wrapExtendScript path by verifying
-    // that a manually crafted wrapFn with a forged token throws.
-    const { wrapExtendScript } = await import("../../../src/compose.js");
-    expect(() =>
-      wrapExtendScript("body", { _readToken: forgedToken, documentId: null }),
-    ).toThrow();
+    tamper.mode = "forged";
+    await expect(getPageStateTool.handler({ page_id: "p1" })).rejects.toThrow(
+      "read_not_authorized: token not issued by this guard",
+    );
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 
-  // GP-T4: documentId mismatch → consumeReadToken throws, sendFn never called
+  // GP-T4: documentId mismatch → the real consumeReadToken rejects, sendFn never called
   it("GP-T4: throws and does not call sendFn when documentId mismatches issued token", async () => {
-    const tok = issueReadToken("doc-issued", "test");
-    const { wrapExtendScript } = await import("../../../src/compose.js");
-    // Token was issued for "doc-issued" but we claim "doc-other"
-    expect(() =>
-      wrapExtendScript("body", { _readToken: tok, documentId: "doc-other" }),
-    ).toThrow();
+    tamper.mode = "wrong_doc";
+    await expect(
+      getPageStateTool.handler({ page_id: "p1", document_id: "doc-A" }),
+    ).rejects.toThrow("read_not_authorized: documentId mismatch");
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 });

@@ -182,4 +182,39 @@ describe("sendReadScript", () => {
 
     expect(bodyFn).toHaveBeenCalledTimes(1);
   });
+
+  // G9: any exception thrown by wrapFn stops the flow before sendFn
+  it("G9: when wrapFn throws, the error propagates and sendFn is never called", async () => {
+    const { fn } = makeSendFn(undefined);
+    const bodyFn = vi.fn(() => "return 9;");
+
+    await expect(
+      sendReadScript(null, "test_tool", { bodyFn }, fn, () => {
+        throw new Error("wrap failed");
+      }),
+    ).rejects.toThrow("wrap failed");
+
+    expect(bodyFn).toHaveBeenCalledTimes(1);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  // G10: the real consumeReadToken, called inside wrapFn with another documentId, blocks sendFn
+  it("G10: when the real consumeReadToken rejects inside wrapFn, sendFn is never called", async () => {
+    const { fn } = makeSendFn(undefined);
+
+    await expect(
+      sendReadScript(
+        "doc-issued",
+        "test_tool",
+        { bodyFn: () => "return 10;" },
+        fn,
+        (body, tok) => {
+          consumeReadToken(tok, "doc-other", "G10");
+          return body;
+        },
+      ),
+    ).rejects.toThrow("read_not_authorized: documentId mismatch");
+
+    expect(fn).not.toHaveBeenCalled();
+  });
 });

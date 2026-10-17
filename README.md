@@ -5,8 +5,9 @@ via macOS `osascript`. UXP plugin upgrade deferred to v2.
 
 29 tools live across document lifecycle, text + paragraph styles, visuals &
 geometry, parent pages & page numbers, inline character styling, frame
-refinements, and read/utility helpers. Verified by 796 unit tests + 79 live
-integration tests against InDesign 2026 (21.3.0.60).
+refinements, and read/utility helpers. Verified by 796 unit tests (mocked transport). The
+79 live integration tests against InDesign 2026 (21.3.0.60) are a historical figure from before the write-guard
+work and are **not re-verified**: the suite is currently blocked (see "Integration tests" below).
 
 See `docs/PROJECT_STATE.md` for current status, conventions, and what's not
 yet shipped. See `docs/superpowers/specs/` and `docs/superpowers/plans/` for
@@ -33,7 +34,9 @@ Unit tests (no InDesign required):
 npm test
 ```
 
-Integration tests (requires InDesign 2026 running):
+Integration tests (requires InDesign 2026 running). **Currently blocked:** `closeAllDocuments()` in
+`tests/integration/helpers.ts` is disabled (it always throws) and 35 test files call it in `afterEach`, so the suite
+fails at cleanup until the CloseToken / integration infrastructure is completed. Do not run it with documents open.
 
 ```bash
 npm run test:integration

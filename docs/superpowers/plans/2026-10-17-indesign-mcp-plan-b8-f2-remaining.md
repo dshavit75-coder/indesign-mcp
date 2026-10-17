@@ -267,9 +267,9 @@ This section was added after the Stage 7C changes were committed in `769d5d1` (1
 - `documentId` is bound to the value the tool passes, which is the same value used at consume time, so the check only catches a change in the middle of the chain. It is **not** verified against the document InDesign receives (G6, deferred to B9). Without `document_id` the script uses the active document.
 - There is no "uncertain outcome" tracking after a failed send, as `write-guard` has.
 - **21 of the 23 mutating tools are still ungated** (G5 stays open). G16, G19 and G20 stay open.
-- Low findings from the review, not fixed: an unused import in the paragraph-style tool test, the title of AP-T3, AP-T1 and AC-T1 check only that the transport was called once, MG5 and MG6 are weak.
+- Low findings from the review: fixed in `9c8ee10` (tests only): the unused import was removed, AP-T3 and AC-T3 now prove that the first consume succeeded before the replay is rejected, MG1 and MG6 check the template `sendFn` receives, and MG5 has an accurate title. Still as before: AP-T1 and AC-T1 check only that the transport was called once (left unchanged on purpose).
 
 ### 14.5 About the commit and the documents
 
 - The commit message of `769d5d1` has no `Co-Authored-By` trailer and does not state the split 796 total / 35 new; this section records it.
-- Not changed by this update: `README.md` and `docs/PROJECT_STATE.md` (still 761 unit tests; the update to 796 is a separate step), `src/`, `tests/`, `dist/`, `CLAUDE.md`. The v3.8 document received reference notes only.
+- Not changed by this update: `src/`, `tests/`, `dist/`, `CLAUDE.md`. `README.md` and `docs/PROJECT_STATE.md` were not changed by it either; their count was updated to 796 afterwards in `d3d49b3`. The v3.8 document received reference notes only.

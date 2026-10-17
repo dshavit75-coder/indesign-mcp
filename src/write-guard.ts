@@ -14,7 +14,7 @@
  */
 
 import { homedir } from "node:os";
-import { lstatSync, openSync, closeSync, statSync, realpathSync, unlinkSync } from "node:fs";
+import { lstatSync, openSync, closeSync, statSync, realpathSync, unlinkSync, type Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import { dirname, basename, extname } from "node:path";
 import type { DocumentId, WriteRefusalReason } from "./types.js";
@@ -775,18 +775,30 @@ export function cleanupPlaceholder(path: string, expectedInode: number): void {
  * Publish a PDF that InDesign wrote to a .part file, by linking it to the
  * final path.
  *
- * Registry (R2a): the only record this function writes is `owned`, and only when
- *   - the record present on ENTRY has the expected shape (`uncertain`, this tool, this document, zero
- *     fingerprint — what sendWriteScript leaves after an export), and
- *   - the link was made, the temporary name was removed without error and the final file can be stat'ed, and
- *   - the registry still holds that very record object (identity, not shape) at the last step.
- * In every other case nothing is written: the registry keeps whatever it held, so a record that someone else
- * replaced or removed is never overwritten.
+ * `ok:true` means only that the link was made and `final` was VERIFIED (lstat succeeded and it is the very file that
+ * was inspected on entry). It does not promise that the temporary name was removed or that nothing is left behind:
+ * the cleanup is reported separately by the caller's own observation of the temporary path, which describes a
+ * state and not a cause. When `final` cannot be verified, the result is `ok:false` / "uncertain" with an explicit
+ * message; `final` and the temporary name are never deleted to repair that.
  *
- * KNOWN LIMITS (not closed here): the record seen on entry is not proof that it belongs to THIS operation, so a
- * foreign record of the same shape installed before entry is accepted (G19, "window A"); the temporary name is
- * still removed by path, so a file that replaced it is removed too (G16). The return value does not say whether
- * the registry was written.
+ * Cleanup (R2b): the temporary name is removed only if it is still the same file as `final` (dev and ino) and is
+ * a regular file; otherwise it is left in place. The check and `unlinkSync` run back to back with no `await`.
+ *
+ * Registry: the only record this function writes is `owned`, and ONLY when ALL of these hold:
+ *   1. `unlinkSync(part)` succeeded;
+ *   2. the final verification after the removal passed;
+ *   3. the record seen on ENTRY has the expected shape (R2a: `uncertain`, this tool, this document, zero
+ *      fingerprint, what sendWriteScript leaves after an export);
+ *   4. the registry still holds that very record object (identity, not shape) at the last step.
+ * In every other case nothing is written, so a record that someone else replaced or removed is never overwritten.
+ *
+ * KNOWN LIMITS (not closed here):
+ *   - G16: the check of the temporary name and `unlinkSync` are two separate system calls. If another process
+ *     replaces the name between them, the file that replaced it is removed. The check narrows this window; it does
+ *     not close it. Node has no removal conditioned on identity.
+ *   - G19 ("window A"): a foreign record of the same shape installed before entry is accepted.
+ *   - Publishing the very file that was inspected cannot be guaranteed before the link; a different file is only
+ *     detected afterwards (and then left in place, not deleted).
  */
 export async function publishPdfPart(opts: {
   partPath: string;
@@ -824,26 +836,79 @@ export async function publishPdfPart(opts: {
     return { ok: false, reason: "uncertain", message: `link failed: ${e.message}` };
   }
 
-  let removed = true;
-  try {
-    await fs.unlink(opts.partPath);
-  } catch {
-    removed = false; // not fatal for the publish, but the cleanup is not verified
-  }
+  // From here on there is no `await`: verification, cleanup and the registry write are one synchronous block.
 
-  // Last step: no `await` below, so the identity check and the write are one synchronous block.
-  let finalStat: ReturnType<typeof lstatSync> | undefined;
+  // 1. Verify `final` before any cleanup. A failure here is not a plain publish failure: the link was made.
+  let finalStat: Stats;
   try {
     finalStat = lstatSync(opts.finalPath);
-  } catch {
-    finalStat = undefined;
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      reason: "uncertain",
+      message:
+        `final could not be verified after publishing: lstat failed (${(err as Error).message}). ` +
+        "The temporary file was not removed. final may exist and was not deleted. Ownership was not recorded.",
+    };
   }
-  if (entryExpected && removed && finalStat !== undefined && registry.get(opts.registryKey) === entryRecord) {
+  if (finalStat.dev !== partStat.dev || finalStat.ino !== partStat.ino) {
+    return {
+      ok: false,
+      reason: "uncertain",
+      message:
+        "final refers to a different file than the one inspected. It was left in place and not deleted; " +
+        "the temporary file was not removed. Ownership was not recorded.",
+    };
+  }
+
+  // 2. Cleanup. Not removing the temporary name never turns a verified publish into a failure.
+  let removed = false;
+  let partNow: Stats | undefined;
+  try {
+    partNow = lstatSync(opts.partPath); // ENOENT or an I/O error: no removal is attempted
+  } catch {
+    partNow = undefined;
+  }
+  if (partNow !== undefined && partNow.isFile() && partNow.dev === finalStat.dev && partNow.ino === finalStat.ino) {
+    try {
+      unlinkSync(opts.partPath);
+      removed = true;
+    } catch {
+      removed = false; // the temporary name stays; the caller observes it
+    }
+  }
+
+  // 3. Final verification, only if something was removed (the removal changed the file's link count and ctime).
+  let finalAfter: Stats | undefined;
+  if (removed) {
+    let why = "it is a different file";
+    try {
+      finalAfter = lstatSync(opts.finalPath);
+    } catch (err: unknown) {
+      finalAfter = undefined;
+      why = `lstat failed (${(err as Error).message})`;
+    }
+    if (finalAfter !== undefined && (finalAfter.dev !== partStat.dev || finalAfter.ino !== partStat.ino)) {
+      finalAfter = undefined;
+    }
+    if (finalAfter === undefined) {
+      return {
+        ok: false,
+        reason: "uncertain",
+        message:
+          `Published, but final could not be re-verified after the temporary name was removed (${why}). ` +
+          "The temporary name WAS removed, final may exist and was not deleted, and ownership was not recorded.",
+      };
+    }
+  }
+
+  // 4. The only registry write: `owned`, when every condition in the doc comment holds.
+  if (removed && finalAfter !== undefined && entryExpected && registry.get(opts.registryKey) === entryRecord) {
     registry.set(opts.registryKey, {
       state: "owned",
       documentId: opts.documentId,
       tool: opts.tool,
-      fingerprint: fingerprintFromStat(finalStat),
+      fingerprint: fingerprintFromStat(finalAfter),
     });
   }
 

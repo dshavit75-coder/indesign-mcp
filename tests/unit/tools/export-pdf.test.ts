@@ -21,6 +21,11 @@
  *   PX12a       existing PDF refused before any send
  *   PX12b/PX12c REAL publishPdfPart on real files: EEXIST race / non-EEXIST link failure
  *   PX13        REAL publishPdfPart: successful publish
+ *   R1-*        REAL guard on real files: the registry record on the failure paths listed in the tests below (an empty,
+ *               absent or non-regular temporary file, a failure envelope, a transport exception, a link failure that is
+ *               not EEXIST), no record after a refusal before dispatch, and the success path. These tests do not show
+ *               that recording `owned` is safe in every case: a competitor creating the target file during the export
+ *               is not covered here, and the unguarded `owned` write inside publishPdfPart (G19) is outside R1.
  *
  * NOT deletion-free overall: publishPdfPart (write-guard.ts) removes the temporary NAME with fs.unlink after
  * a successful link, by path and without inode verification. That is unchanged and outside this file's scope;
@@ -982,5 +987,202 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     expect(del.unlink).toHaveBeenCalledTimes(1);
     expect(del.unlink.mock.calls[0][0]).toBe(seen.partPath);
     expect(realWg.registryGet(finalPath)?.state).toBe("owned");
+  });
+
+  // ── R1: the registry record after each path of export_pdf ───────────────────────────────────────────
+  // Real decideWrite / sendWriteScript / publishPdfPart on real files; the transport plays InDesign.
+  // These tests check the CURRENT behaviour of the success path and of the failure paths listed below.
+  // They do NOT show that recording `owned` is safe in every case: the case of a competitor creating the
+  // target file during the export (the file already exists when the send ends) and the unguarded `owned`
+  // write inside publishPdfPart (G19) are outside R1.
+
+  const ZERO_FP = { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 };
+  const expectRecord = (finalPath: string, state: "uncertain" | "pending") =>
+    expect(realWg.registryGet(finalPath)).toEqual({ state, documentId: DOC_ID, tool: "export_pdf", fingerprint: ZERO_FP });
+
+  /** Like `arrange`, but "InDesign" is `run(partPath)`, and `atPublish` observes the registry on entry to publishPdfPart. */
+  function arrangeR1(finalName: string, run: (partPath: string) => unknown, atPublish?: (finalPath: string) => void) {
+    const finalPath = join(dir, finalName);
+    const seen: { partPath?: string } = {};
+    mockPreQueryOk();
+    mockDecideWrite.mockImplementationOnce(((...a: Parameters<typeof realWg.decideWrite>) => realWg.decideWrite(...a)) as never);
+    mockSendWriteScript.mockImplementationOnce(((...a: Parameters<typeof realWg.sendWriteScript>) => realWg.sendWriteScript(...a)) as never);
+    mockPublishPdfPart.mockImplementationOnce(((...a: Parameters<typeof realWg.publishPdfPart>) => {
+      atPublish?.(finalPath);
+      return realWg.publishPdfPart(...a);
+    }) as never);
+    mockRunScript.mockImplementationOnce(((o: { scriptTemplate: string }) => {
+      seen.partPath = findPartPath(o.scriptTemplate, dir);
+      return Promise.resolve(run(seen.partPath));
+    }) as never);
+    return { finalPath, seen };
+  }
+  const okEnvelope = (partPath: string) => ({ ok: true, result: { path: partPath, page_count: 2 } });
+
+  it.each([
+    ["R1-1: an empty temporary file", "empty.pdf", (p: string) => realFs.writeFileSync(p, ""), "an empty file (0 bytes)",
+      (p: string) => expect(realFs.lstatSync(p).size).toBe(0)],
+    ["R1-2: an absent temporary file", "absent.pdf", () => undefined, "was not found when checked",
+      (p: string) => expect(realFs.existsSync(p)).toBe(false)],
+    ["R1-3: a temporary path that is not a regular file (a directory)", "dir.pdf", (p: string) => realFs.mkdirSync(p), "is not a regular file",
+      (p: string) => expect(realFs.lstatSync(p).isDirectory()).toBe(true)],
+  ])("%s → io_error, nothing published or removed, the record stays uncertain (never owned)", async (_n, finalName, make, fragment, partStillThere) => {
+    const { finalPath, seen } = arrangeR1(finalName, (p) => { make(p); return okEnvelope(p); });
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("io_error");
+      expect(result.error.message).toContain(fragment);
+      expect(result.error.message).toContain("Nothing was published");
+      expect(result.error.message).toContain(seen.partPath!);
+    }
+    expectRecord(finalPath, "uncertain");
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(realFs.existsSync(finalPath)).toBe(false);
+    partStillThere(seen.partPath!);
+    expectNoDeletion();
+  });
+
+  it("R1-4: a failure envelope from the InDesign script (not an exception) → kind kept, the record stays uncertain", async () => {
+    const { finalPath } = arrangeR1("envfail.pdf", () => ({ ok: false, error: { kind: "script_error", message: "x" } }));
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("script_error");
+      expect(result.error.message).toBe("x");
+    }
+    expectRecord(finalPath, "uncertain");
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(realFs.existsSync(finalPath)).toBe(false);
+    expectNoDeletion();
+  });
+
+  it("R1-5: the transport throws (the REAL guard swallows it) → io_error, not a raw throw, the record stays uncertain", async () => {
+    const { finalPath } = arrangeR1("transport.pdf", () => Promise.reject(new Error("osascript died")));
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("io_error");
+      expect(result.error.message).toContain("osascript died");
+    }
+    expectRecord(finalPath, "uncertain");
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(realFs.existsSync(finalPath)).toBe(false);
+    expectNoDeletion();
+  });
+
+  it("R1-6: a link failure that is not EEXIST (injected EPERM) → io_error, the temporary file is kept, the record stays uncertain", async () => {
+    del.linkFault = Object.assign(new Error("EPERM: operation not permitted, link"), { code: "EPERM" });
+    const { finalPath, seen } = arrangeR1("perm2.pdf", (p) => { realFs.writeFileSync(p, PDF_BYTES); return okEnvelope(p); });
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("io_error");
+      expect(result.error.message).toContain("link failed: EPERM");
+    }
+    expectRecord(finalPath, "uncertain");
+    expect(mockPublishPdfPart).toHaveBeenCalledTimes(1);
+    expect(realFs.existsSync(finalPath)).toBe(false);
+    expect(realFs.readFileSync(seen.partPath!, "utf8")).toBe(PDF_BYTES);
+    expectNoDeletion();
+  });
+
+  it("R1-8a: a body changed after the capability was issued is refused BEFORE any record or export script → no record", async () => {
+    const finalPath = join(dir, "r18a.pdf");
+    mockPreQueryOk();
+    mockDecideWrite.mockImplementationOnce(((...a: Parameters<typeof realWg.decideWrite>) => realWg.decideWrite(...a)) as never);
+    mockSendWriteScript.mockImplementationOnce(((...[d, req, send, wrap]: Parameters<typeof realWg.sendWriteScript>) =>
+      realWg.sendWriteScript(d, req, send, (body, cap, op) => wrap(body + " ", cap, op))) as never);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("write_not_authorized");
+      expect(result.error.message).toBe("write_not_authorized: capability body mismatch");
+    }
+    expect(realWg.registryGet(finalPath)).toBeUndefined();
+    expect(mockRunScript).toHaveBeenCalledTimes(1); // the pre-query only
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(realFs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("R1-8b: a body without exportFile( is refused BEFORE any record or export script → no record", async () => {
+    const finalPath = join(dir, "r18b.pdf");
+    mockPreQueryOk();
+    mockDecideWrite.mockImplementationOnce(((...a: Parameters<typeof realWg.decideWrite>) => realWg.decideWrite(...a)) as never);
+    mockSendWriteScript.mockImplementationOnce(((...[d, req, send, wrap]: Parameters<typeof realWg.sendWriteScript>) =>
+      realWg.sendWriteScript(d, { ...req, scriptOpts: { bodyFn: () => "return 1;" } }, send, wrap)) as never);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("write_not_authorized");
+      expect(result.error.message.startsWith("operation_body_mismatch:")).toBe(true);
+    }
+    expect(realWg.registryGet(finalPath)).toBeUndefined();
+    expect(mockRunScript).toHaveBeenCalledTimes(1);
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(realFs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("R1-9: a target that already exists is refused before any export script → no record, content intact, no temporary file", async () => {
+    const { finalPath } = arrangeR1("exists.pdf", (p) => okEnvelope(p));
+    realFs.writeFileSync(finalPath, "EXISTING");
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("pdf_replace_blocked");
+      expect(result.error.existing_path).toBe(finalPath);
+    }
+    expect(realWg.registryGet(finalPath)).toBeUndefined();
+    expect(mockRunScript).toHaveBeenCalledTimes(1); // the pre-query only: the export was never sent
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe("EXISTING");
+    expect(realFs.readdirSync(dir)).toEqual(["exists.pdf"]);
+    expectNoDeletion();
+  });
+
+  it("R1-10: success path only — uncertain (zero fingerprint) on entry to publishPdfPart, owned with the final file's fingerprint at the end", async () => {
+    // This does NOT show that recording `owned` is safe in every case (for example, when a competitor creates
+    // the target file during the export), nor that publishPdfPart's `owned` write is guarded (G19).
+    let atEntry: unknown;
+    const { finalPath } = arrangeR1("success2.pdf", (p) => { realFs.writeFileSync(p, PDF_BYTES); return okEnvelope(p); },
+      (f) => { atEntry = realWg.registryGet(f); });
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(atEntry).toEqual({ state: "uncertain", documentId: DOC_ID, tool: "export_pdf", fingerprint: ZERO_FP });
+    const st = realFs.lstatSync(finalPath);
+    const record = realWg.registryGet(finalPath)!;
+    expect(record.state).toBe("owned");
+    expect(record.fingerprint).toEqual({ dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs });
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
+  });
+
+  it("R1-11: while the export script runs the record is pending (zero fingerprint)", async () => {
+    let during: unknown;
+    const { finalPath } = arrangeR1("pending.pdf", (p) => {
+      during = realWg.registryGet(join(dir, "pending.pdf"));
+      realFs.writeFileSync(p, PDF_BYTES);
+      return okEnvelope(p);
+    });
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(during).toEqual({ state: "pending", documentId: DOC_ID, tool: "export_pdf", fingerprint: ZERO_FP });
   });
 });

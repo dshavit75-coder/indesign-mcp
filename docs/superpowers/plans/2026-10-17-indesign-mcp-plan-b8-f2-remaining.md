@@ -230,6 +230,7 @@ This section was added after R1, R2a and R2b were implemented. §1-§12 above we
 - *Status update (2026-10-18):* since `769d5d1` two of the 23 are on the mutate token track; 21 remain ungated (see §14).
 - A file swapped in before the link is detected only afterwards (R2b-S4) and is left in place, not deleted.
 - `publishPdfPart` returns `ok:false` also for a publish that already happened (messages "final could not be verified after publishing: ...", "final refers to a different file than the one inspected ...", "Published, but final could not be re-verified ..."), and `src/tools/export-pdf.ts` shows every `ok:false` under "Publishing failed:". A JSDoc note about this has not been written.
+- *Status update (2026-10-18):* the JSDoc note about this was added to `publishPdfPart` in `7127b8b` (comment only). The behaviour and the `export-pdf.ts` wording are unchanged.
 - The registry state is still not reported to the caller (D-R2-2); G17 (message-prefix contract) and G18 (no `%PDF-` check) are unchanged.
 - Nothing was verified against a real InDesign.
 

@@ -622,4 +622,73 @@ describe("publishPdfPart", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("uncertain");
   });
+
+  // ── R2a: the registry write of publishPdfPart ─────────────────────────────────────────────────────
+  // Real files, no mocks. The registry record present on ENTRY is seeded with registrySet. `owned` is written
+  // only for the expected entry record; in every other case the registry is left exactly as it was.
+
+  const ZERO_FP = { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 };
+  const expectedEntry = () => ({ state: "uncertain" as const, documentId: "doc1", tool: "export_pdf", fingerprint: { ...ZERO_FP } });
+  function publishArgs(name: string) {
+    const partPath = tmpDir + "/" + name + ".part";
+    const finalPath = tmpDir + "/" + name;
+    writeFileSync(partPath, "pdf-content");
+    return { partPath, finalPath, registryKey: finalPath, tool: "export_pdf", documentId: "doc1" };
+  }
+  const fpOf = (path: string) => {
+    const st = nodeFs.lstatSync(path);
+    return { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs };
+  };
+
+  it("R2a-W1: the expected entry record → the temporary name is removed and the record becomes owned with the final file's fingerprint", async () => {
+    const a = publishArgs("w1.pdf");
+    registrySet(a.registryKey, expectedEntry());
+
+    const r = await publishPdfPart(a);
+
+    expect(r.ok).toBe(true);
+    expect(nodeFs.existsSync(a.partPath)).toBe(false);
+    expect(nodeFs.readFileSync(a.finalPath, "utf8")).toBe("pdf-content");
+    expect(registryGet(a.registryKey)).toEqual({ state: "owned", documentId: "doc1", tool: "export_pdf", fingerprint: fpOf(a.finalPath) });
+  });
+
+  it("R2a-W2: no record on entry (window A) → published, and no record is written", async () => {
+    const a = publishArgs("w2.pdf");
+
+    const r = await publishPdfPart(a);
+
+    expect(r.ok).toBe(true);
+    expect(nodeFs.readFileSync(a.finalPath, "utf8")).toBe("pdf-content");
+    expect(registryGet(a.registryKey)).toBeUndefined();
+  });
+
+  it.each([
+    ["state", { ...expectedEntry(), state: "owned" as const }],
+    ["tool", { ...expectedEntry(), tool: "save_document" }],
+    ["documentId", { ...expectedEntry(), documentId: "doc2" }],
+    ["fingerprint", { ...expectedEntry(), fingerprint: { dev: 1, ino: 2, size: 3, mtimeMs: 4, ctimeMs: 5 } }],
+  ])("R2a-W3 (%s): a record of a different shape on entry (window A) → published, the record is left untouched", async (_what, foreign) => {
+    const a = publishArgs("w3.pdf");
+    registrySet(a.registryKey, foreign);
+
+    const r = await publishPdfPart(a);
+
+    expect(r.ok).toBe(true);
+    expect(nodeFs.readFileSync(a.finalPath, "utf8")).toBe("pdf-content");
+    expect(registryGet(a.registryKey)).toBe(foreign); // the very same object
+  });
+
+  it("R2a-W4 KNOWN LIMITATION: a foreign record with the SAME shape on entry is accepted and overwritten with owned (G19 is not fully closed)", async () => {
+    // Pins a limit, not a protection: the identity of the record observed on entry does not prove that it
+    // belongs to this operation. Closing window A needs a binding between the record and the original write.
+    const a = publishArgs("w4.pdf");
+    const foreignSameShape = expectedEntry();
+    registrySet(a.registryKey, foreignSameShape);
+
+    const r = await publishPdfPart(a);
+
+    expect(r.ok).toBe(true);
+    expect(registryGet(a.registryKey)).not.toBe(foreignSameShape);
+    expect(registryGet(a.registryKey)?.state).toBe("owned");
+  });
 });

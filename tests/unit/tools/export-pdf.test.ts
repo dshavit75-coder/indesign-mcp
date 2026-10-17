@@ -21,6 +21,9 @@
  *   PX12a       existing PDF refused before any send
  *   PX12b/PX12c REAL publishPdfPart on real files: EEXIST race / non-EEXIST link failure
  *   PX13        REAL publishPdfPart: successful publish
+ *   R2a-*       REAL guard on real files: the registry write of publishPdfPart (`owned` only for the expected entry
+ *               record, only after a verified publish, never over a record that was replaced). Known limits are
+ *               pinned by tests named KNOWN LIMITATION / CHARACTERIZATION: they are not protections (G19, G16).
  *   R1-*        REAL guard on real files: the registry record on the failure paths listed in the tests below (an empty,
  *               absent or non-regular temporary file, a failure envelope, a transport exception, a link failure that is
  *               not EEXIST), no record after a refusal before dispatch, and the success path. These tests do not show
@@ -59,6 +62,16 @@ const del = vi.hoisted(() => ({
   pRm: vi.fn(),
   /** When set, the next fs/promises link() rejects with it (root-independent fault injection). */
   linkFault: null as Error | null,
+  /** R2a hooks, all inert by default and reset before every test. */
+  unlinkFault: null as Error | null,
+  /** Runs right after the real link() succeeded (and sets postLink). */
+  afterLink: null as null | (() => void),
+  /** Runs before the real unlink() is attempted. */
+  beforeUnlink: null as null | (() => void),
+  /** True once link() has succeeded in this test. */
+  postLink: false,
+  /** Set by a test's lstat injection when it really fired. */
+  injected: false,
 }));
 
 // ── Mocks must be hoisted before any import of the module under test ──────────
@@ -82,14 +95,24 @@ vi.mock("node:fs", async (importOriginal) => {
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   type Fn = (...a: unknown[]) => unknown;
-  del.unlink.mockImplementation((...a: unknown[]) => (actual.unlink as unknown as Fn)(...a));
+  del.unlink.mockImplementation((...a: unknown[]) => {
+    del.beforeUnlink?.();
+    if (del.unlinkFault !== null) return Promise.reject(del.unlinkFault);
+    return (actual.unlink as unknown as Fn)(...a);
+  });
   del.rm.mockImplementation((...a: unknown[]) => (actual.rm as unknown as Fn)(...a));
   return {
     ...actual,
     unlink: del.unlink,
     rm: del.rm,
-    link: ((a: string, b: string) =>
-      del.linkFault !== null ? Promise.reject(del.linkFault) : actual.link(a, b)) as typeof actual.link,
+    link: ((a: string, b: string) => {
+      if (del.linkFault !== null) return Promise.reject(del.linkFault);
+      return actual.link(a, b).then((r: unknown) => {
+        del.postLink = true;
+        del.afterLink?.();
+        return r;
+      });
+    }) as typeof actual.link,
   };
 });
 
@@ -229,6 +252,11 @@ beforeEach(() => {
   mockPublishPdfPart.mockReset();
   mockRunScript.mockReset();
   del.linkFault = null;
+  del.unlinkFault = null;
+  del.afterLink = null;
+  del.beforeUnlink = null;
+  del.postLink = false;
+  del.injected = false;
   // Reset lstatSync to default (ENOENT) between tests
   _lstatImpl = () => {
     const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -1184,5 +1212,145 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
 
     expect(result.ok).toBe(true);
     expect(during).toEqual({ state: "pending", documentId: DOC_ID, tool: "export_pdf", fingerprint: ZERO_FP });
+  });
+
+  // ── R2a: the registry write of publishPdfPart, seen through the tool (real guard, real files) ──────────
+  // `replacement()` is a record of the SAME shape as the expected entry record, but a different object.
+  // Window B = the record changes while publishPdfPart is awaiting link() or unlink().
+  const replacement = () => ({ state: "uncertain" as const, documentId: DOC_ID, tool: "export_pdf", fingerprint: { ...ZERO_FP } });
+  const okExport = (p: string) => { realFs.writeFileSync(p, PDF_BYTES); return okEnvelope(p); };
+  const eacces = () => Object.assign(new Error("EACCES: permission denied, unlink"), { code: "EACCES" });
+  const warningsOf = (r: unknown) => (r as { warnings?: string[] }).warnings;
+  /** After link() succeeded, lstat of the final path fails (EIO). `del.injected` records that it really fired. */
+  const failFinalAfterLink = (finalPath: string) => {
+    _lstatImpl = ((pth: string) => {
+      if (del.postLink && pth === finalPath) {
+        del.injected = true;
+        throw Object.assign(new Error("EIO: injected"), { code: "EIO" });
+      }
+      return realFs.lstatSync(pth);
+    }) as never;
+  };
+
+  it("R2a-E1: the record is replaced (same shape, other object) DURING link() → it is not overwritten", async () => {
+    const { finalPath } = arrangeR1("e1.pdf", okExport);
+    const other = replacement();
+    del.afterLink = () => realWg.registrySet(finalPath, other);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
+    expect(realWg.registryGet(finalPath)).toBe(other);
+  });
+
+  it("R2a-E2: the record is removed DURING link() → nothing is written", async () => {
+    const { finalPath } = arrangeR1("e2.pdf", okExport);
+    del.afterLink = () => realWg.registryReset();
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
+    expect(realWg.registryGet(finalPath)).toBeUndefined();
+  });
+
+  it("R2a-E3: the record is replaced DURING unlink() → it is not overwritten", async () => {
+    const { finalPath } = arrangeR1("e3.pdf", okExport);
+    const other = replacement();
+    del.beforeUnlink = () => realWg.registrySet(finalPath, other);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(realWg.registryGet(finalPath)).toBe(other);
+  });
+
+  it("R2a-E5: unlink of the temporary name fails → published with a warning, the record stays uncertain (not owned)", async () => {
+    const { finalPath, seen } = arrangeR1("e5.pdf", okExport);
+    del.unlinkFault = eacces();
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
+    expect(realFs.readFileSync(seen.partPath!, "utf8")).toBe(PDF_BYTES); // the temporary name is still there
+    expect(warningsOf(result)?.[0]).toContain("A file is present at the temporary path");
+    expectRecord(finalPath, "uncertain");
+  });
+
+  it("R2a-E7a (T5 only, KNOWN LIMITATION): entry record expected, lstat of the final path fails after link → the record keeps its value; the tool reports plain success WITHOUT warnings", async () => {
+    // Pins the current gap for THIS scenario only: the tool does not inspect the final path after a successful
+    // publish, so nothing tells the user that the final file could not be verified. It is not an expectation
+    // for any other verification failure (see E5, where a warning is required).
+    let entry: unknown;
+    const { finalPath } = arrangeR1("e7a.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
+    failFinalAfterLink(finalPath);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(del.injected).toBe(true); // precondition: the injected failure really fired
+    expect(result.ok).toBe(true);
+    expect("warnings" in result).toBe(false);
+    expect(realWg.registryGet(finalPath)).toEqual(entry);
+  });
+
+  it("R2a-E7b (T5): a FOREIGN record on entry, lstat of the final path fails after link → the foreign record is untouched", async () => {
+    const foreign = { state: "owned" as const, documentId: DOC_ID, tool: "save_document", fingerprint: { dev: 1, ino: 2, size: 3, mtimeMs: 4, ctimeMs: 5 } };
+    const { finalPath } = arrangeR1("e7b.pdf", okExport, (f) => { realWg.registrySet(f, foreign); });
+    failFinalAfterLink(finalPath);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(del.injected).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(realWg.registryGet(finalPath)).toBe(foreign);
+  });
+
+  it("R2a-E7c (T5): the record is replaced DURING link(), then lstat of the final path fails → the replacement is untouched", async () => {
+    const { finalPath } = arrangeR1("e7c.pdf", okExport);
+    const other = replacement();
+    failFinalAfterLink(finalPath);
+    del.afterLink = () => realWg.registrySet(finalPath, other);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(del.injected).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(realWg.registryGet(finalPath)).toBe(other);
+  });
+
+  it("R2a-E8: unlink fails AND the record is replaced meanwhile → the foreign record is untouched, the temporary name stays", async () => {
+    const { finalPath, seen } = arrangeR1("e8.pdf", okExport);
+    const other = replacement();
+    del.beforeUnlink = () => realWg.registrySet(finalPath, other);
+    del.unlinkFault = eacces();
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(true);
+    expect(realWg.registryGet(finalPath)).toBe(other);
+    expect(realFs.readFileSync(seen.partPath!, "utf8")).toBe(PDF_BYTES);
+  });
+
+  it("R2a-L2 CHARACTERIZATION of the existing G16 limit (not a protection): a file that replaced the temporary name after link() is removed too, because the removal is by path", async () => {
+    // publishPdfPart removes the temporary NAME with fs.unlink(partPath). R2a does not change that. Neither a
+    // matching name nor a matching inode is checked, so a foreign file at that path is deleted. Fixing this
+    // needs the separate R2b plan; this test must be flipped there.
+    const { finalPath, seen } = arrangeR1("l2.pdf", okExport);
+    let contentAtRemoval: string | undefined;
+    del.afterLink = () => { realFs.unlinkSync(seen.partPath!); realFs.writeFileSync(seen.partPath!, "FOREIGN"); };
+    del.beforeUnlink = () => { contentAtRemoval = realFs.readFileSync(seen.partPath!, "utf8"); };
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(contentAtRemoval).toBe("FOREIGN"); // what was about to be removed was NOT the file InDesign wrote
+    expect(realFs.existsSync(seen.partPath!)).toBe(false); // ...and it is gone
+    expect(del.unlink).toHaveBeenCalledTimes(1);
+    expect(del.unlink.mock.calls[0][0]).toBe(seen.partPath);
+    expect(result.ok).toBe(true);
+    expect("warnings" in result).toBe(false);
+    expect(realWg.registryGet(finalPath)?.state).toBe("owned"); // every step "succeeded"
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
   });
 });

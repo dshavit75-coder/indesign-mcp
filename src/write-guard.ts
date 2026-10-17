@@ -774,6 +774,19 @@ export function cleanupPlaceholder(path: string, expectedInode: number): void {
 /**
  * Publish a PDF that InDesign wrote to a .part file, by linking it to the
  * final path.
+ *
+ * Registry (R2a): the only record this function writes is `owned`, and only when
+ *   - the record present on ENTRY has the expected shape (`uncertain`, this tool, this document, zero
+ *     fingerprint — what sendWriteScript leaves after an export), and
+ *   - the link was made, the temporary name was removed without error and the final file can be stat'ed, and
+ *   - the registry still holds that very record object (identity, not shape) at the last step.
+ * In every other case nothing is written: the registry keeps whatever it held, so a record that someone else
+ * replaced or removed is never overwritten.
+ *
+ * KNOWN LIMITS (not closed here): the record seen on entry is not proof that it belongs to THIS operation, so a
+ * foreign record of the same shape installed before entry is accepted (G19, "window A"); the temporary name is
+ * still removed by path, so a file that replaced it is removed too (G16). The return value does not say whether
+ * the registry was written.
  */
 export async function publishPdfPart(opts: {
   partPath: string;
@@ -792,6 +805,15 @@ export async function publishPdfPart(opts: {
     return { ok: false, reason: "uncertain", message: "part path is not a regular file" };
   }
 
+  // Registry record on entry: kept as an object so that the last step can check identity, not only shape.
+  const entryRecord = registry.get(opts.registryKey);
+  const entryExpected =
+    entryRecord !== undefined &&
+    entryRecord.state === "uncertain" &&
+    entryRecord.tool === opts.tool &&
+    entryRecord.documentId === opts.documentId &&
+    fingerprintEqual(entryRecord.fingerprint, { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 });
+
   try {
     await fs.link(opts.partPath, opts.finalPath);
   } catch (err: unknown) {
@@ -802,26 +824,26 @@ export async function publishPdfPart(opts: {
     return { ok: false, reason: "uncertain", message: `link failed: ${e.message}` };
   }
 
+  let removed = true;
   try {
     await fs.unlink(opts.partPath);
   } catch {
-    // Non-fatal
+    removed = false; // not fatal for the publish, but the cleanup is not verified
   }
 
+  // Last step: no `await` below, so the identity check and the write are one synchronous block.
+  let finalStat: ReturnType<typeof lstatSync> | undefined;
   try {
-    const st = lstatSync(opts.finalPath);
+    finalStat = lstatSync(opts.finalPath);
+  } catch {
+    finalStat = undefined;
+  }
+  if (entryExpected && removed && finalStat !== undefined && registry.get(opts.registryKey) === entryRecord) {
     registry.set(opts.registryKey, {
       state: "owned",
       documentId: opts.documentId,
       tool: opts.tool,
-      fingerprint: fingerprintFromStat(st),
-    });
-  } catch {
-    registry.set(opts.registryKey, {
-      state: "uncertain",
-      documentId: opts.documentId,
-      tool: opts.tool,
-      fingerprint: { dev: 0, ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 },
+      fingerprint: fingerprintFromStat(finalStat),
     });
   }
 

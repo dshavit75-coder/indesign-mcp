@@ -22,7 +22,7 @@ Node/TS stdio MCP server emits ExtendScript bodies, dispatches via macOS
 | B6   | Frame refinements | `set_frame_inset`, `set_frame_columns`, `thread_text_frames` |
 | B7   | Polish & utility | `create_swatch`, `duplicate_frame`, `find_replace`, `list_paragraph_styles`, `list_pages` |
 
-**Test counts:** 730 unit tests (run via `npm test`) + 79 live integration
+**Test counts:** 746 unit tests (run via `npm test`) + 79 live integration
 tests (run via `npm run test:integration` with InDesign 2026 open, requires
 `INDESIGN_MCP_INTEGRATION=1` env).
 
@@ -134,7 +134,7 @@ docs/superpowers/
 
 Before declaring any work shipped:
 
-1. `npm test` (730 unit tests must pass)
+1. `npm test` (746 unit tests must pass)
 2. `npx tsc --noEmit`
 3. `npm run build`
 4. With InDesign 2026 running: `npm run test:integration` (79 tests must pass)

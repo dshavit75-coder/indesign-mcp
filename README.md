@@ -5,7 +5,7 @@ via macOS `osascript`. UXP plugin upgrade deferred to v2.
 
 29 tools live across document lifecycle, text + paragraph styles, visuals &
 geometry, parent pages & page numbers, inline character styling, frame
-refinements, and read/utility helpers. Verified by 719 unit tests + 79 live
+refinements, and read/utility helpers. Verified by 730 unit tests + 79 live
 integration tests against InDesign 2026 (21.3.0.60).
 
 See `docs/PROJECT_STATE.md` for current status, conventions, and what's not

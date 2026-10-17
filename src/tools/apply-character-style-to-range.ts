@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
+import { sendMutateScript } from "../mutate-guard.js";
 import { findDocumentById, findFrameById, findCharacterStyleByName } from "../script-helpers.js";
 import { ok } from "../errors.js";
 
@@ -78,11 +79,19 @@ export const applyCharacterStyleToRangeTool = defineTool<Input, Result>({
     "Applies a named character style to a character range within a text frame. start_index is 0-based inclusive; end_index is exclusive (JavaScript slice convention). The frame must be a text frame. The character style must already exist.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const documentId = input.document_id ?? null;
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      documentId,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "apply_character_style_to_range",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

@@ -384,3 +384,52 @@ describe("wrapExtendScript — _readToken track", () => {
     ).toThrow("read_not_authorized: token not issued by this guard");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage 7C: _mutateToken track (C-M1 – C-M5)
+// ---------------------------------------------------------------------------
+import { issueMutateToken } from "../../src/mutate-capability.js";
+import { issueWriteCapability } from "../../src/write-capability.js";
+
+describe("wrapExtendScript — _mutateToken track", () => {
+  const body = "var x = 1; return { x: x };";
+
+  it("C-M1: valid token with null documentId succeeds and returns wrapped string", () => {
+    const tok = issueMutateToken(null, body, "C-M1");
+    const result = wrapExtendScript(body, { _mutateToken: tok, documentId: null });
+    expect(typeof result).toBe("string");
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("C-M2: valid token with string documentId succeeds and body appears in output", () => {
+    const tok = issueMutateToken("doc-A", body, "C-M2");
+    const result = wrapExtendScript(body, { _mutateToken: tok, documentId: "doc-A" });
+    expect(result).toContain(body);
+  });
+
+  it("C-M3: forged token (plain empty object) is rejected", () => {
+    expect(() =>
+      wrapExtendScript(body, { _mutateToken: {}, documentId: null }),
+    ).toThrow("mutate_not_authorized: token not issued by this guard");
+  });
+
+  it("C-M4: regression — the _writeCapability track still enforces the capability after Stage 7C changes", () => {
+    // Uses a REAL write capability on the write track (not the legacy path).
+    const cap = issueWriteCapability(body, "export-pdf");
+    const wrapped = wrapExtendScript(body, { _writeCapability: cap, operation: "export-pdf" });
+    expect(wrapped).toContain(body);
+    // Enforcement is still active: a capability issued for `body` is rejected for a different body. Without the
+    // write branch this call would fall through to the legacy path and not throw.
+    const cap2 = issueWriteCapability(body, "export-pdf");
+    expect(() =>
+      wrapExtendScript(body + " ", { _writeCapability: cap2, operation: "export-pdf" }),
+    ).toThrow("write_not_authorized: capability body mismatch");
+  });
+
+  it("C-M5: regression — _readToken track still works after Stage 7C changes", () => {
+    const tok = issueReadToken("doc-R", "C-M5");
+    const result = wrapExtendScript(body, { _readToken: tok, documentId: "doc-R" });
+    expect(typeof result).toBe("string");
+    expect(result.length).toBeGreaterThan(0);
+  });
+});

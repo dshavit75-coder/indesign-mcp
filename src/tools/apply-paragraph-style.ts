@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
+import { sendMutateScript } from "../mutate-guard.js";
 import {
   findDocumentById,
   findFrameById,
@@ -63,11 +64,19 @@ export const applyParagraphStyleTool = defineTool<Input, Result>({
     "Applies a paragraph style by name to all paragraphs in a text frame, clearing local overrides. Returns the affected paragraph count.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const documentId = input.document_id ?? null;
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      documentId,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "apply_paragraph_style",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

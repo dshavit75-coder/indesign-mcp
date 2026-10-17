@@ -4,6 +4,8 @@
 import { consumeWriteCapability } from "./write-capability.js";
 import type { WriteOperation } from "./write-capability.js";
 import { consumeReadToken } from "./read-capability.js";
+// Stage 7C: import MutateToken consumer for the mutate track.
+import { consumeMutateToken } from "./mutate-capability.js";
 
 /**
  * Sentinel replaced by runScriptWithResultFile with the actual temp-file path
@@ -85,19 +87,22 @@ export function prelude(...sources: string[]): string {
  *   plain JS throw       → {ok:false, error:{kind:"script_error", message, stack}}
  *   no InDesign          → {ok:false, error:{kind:"app_not_available", message}}
  *
- * Stage 7B — three tracks:
+ * Stage 7C — four tracks:
  *   1. Write operation: opts._writeCapability present → consumeWriteCapability()
  *      The capability is consumed here, binding the body to the authorized operation.
  *   2. Read operation: opts._readToken present → consumeReadToken() [Stage 7B: active]
- *   3. Legacy pass-through: no opts → allowed in Stage 6 for the 30+ read tools
- *      that have not yet been given ReadTokens. Stage 7 will replace this with
- *      `throw new Error("missing_token: ...")`.
+ *   3. Mutate operation: opts._mutateToken present → consumeMutateToken() [Stage 7C: active]
+ *      Binds body (positional arg) + documentId. Two tools use this track:
+ *      apply_paragraph_style and apply_character_style_to_range.
+ *   4. Legacy pass-through: no opts → allowed for the remaining mutation tools
+ *      not yet converted. Stage 7C deferred gating of 21 tools to B9 (D2-d).
  */
 export function wrapExtendScript(
   body: string,
   opts?:
     | { _writeCapability: object; operation: WriteOperation }
-    | { _readToken: object; documentId: string | null },
+    | { _readToken: object; documentId: string | null }
+    | { _mutateToken: object; documentId: string | null },
 ): string {
   if (opts !== undefined && "_writeCapability" in opts) {
     // Write track: consume the capability — throws if not authorized, mismatched body/op, or already used.
@@ -111,8 +116,21 @@ export function wrapExtendScript(
     // bypassing wrapExtendScript entirely. Full enforcement at the send point is a
     // Stage 7F task. result-file.ts is a protected file and is not modified here.
     consumeReadToken(opts._readToken, opts.documentId, "wrapExtendScript");
+  } else if (opts !== undefined && "_mutateToken" in opts) {
+    // Mutate track (Stage 7C): consume the token — throws if not issued, already used,
+    // body does not match the positional `body` argument, or documentId does not match.
+    //
+    // Security note: `body` here is the POSITIONAL argument to wrapExtendScript —
+    // the exact string that will be dispatched to InDesign. consumeMutateToken checks
+    // this against the body bound at issue time, so a body-swap between issueMutateToken
+    // and wrapExtendScript is detected. An opts.body field is intentionally absent.
+    //
+    // KNOWN LIMITATION (G6): documentId is not independently verified against the
+    // InDesign document actually receiving the script. Full enforcement deferred to B9.
+    // KNOWN LIMITATION (G7/Stage 7F): callers bypassing wrapExtendScript are not gated.
+    consumeMutateToken(opts._mutateToken, body, opts.documentId, "wrapExtendScript");
   }
-  // else: legacy pass-through — no token required in Stage 6.
+  // else: legacy pass-through — no token required for remaining ungated tools (D2-d).
   const innerSource =
     ES_STRINGIFY +
     `

@@ -103,8 +103,6 @@ describe("apply_paragraph_style tool", () => {
 // consumeMutateToken enforcement runs. sendFn not being called proves
 // the enforcement blocked dispatch.
 // ---------------------------------------------------------------------------
-import { wrapExtendScript as _wrapExtendScriptType } from "../../../src/compose.js";
-
 const tamperAP = vi.hoisted(() => ({
   mode: "passthrough" as
     | "passthrough"
@@ -112,6 +110,8 @@ const tamperAP = vi.hoisted(() => ({
     | "replay"
     | "wrong_doc"
     | "body_swap",
+  /** Counts first consumptions that succeeded in "replay" mode (proof that the replay really is a second use). */
+  firstConsumeOk: 0,
 }));
 
 vi.mock("../../../src/compose.js", async (importOriginal) => {
@@ -128,6 +128,7 @@ vi.mock("../../../src/compose.js", async (importOriginal) => {
           });
         if (tamperAP.mode === "replay") {
           actual.wrapExtendScript(body, opts); // consume once
+          tamperAP.firstConsumeOk++; // the first consume did not throw
           return actual.wrapExtendScript(body, opts); // replay — should throw
         }
         if (tamperAP.mode === "wrong_doc")
@@ -151,6 +152,7 @@ describe("apply_paragraph_style — Stage 7C tamper tests", () => {
 
   beforeEach(() => {
     tamperAP.mode = "passthrough";
+    tamperAP.firstConsumeOk = 0;
     vi.mocked(runScriptWithResultFile).mockReset();
   });
 
@@ -175,17 +177,15 @@ describe("apply_paragraph_style — Stage 7C tamper tests", () => {
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 
-  it("AP-T3: replay → second consume throws; sendFn called at most once", async () => {
+  it("AP-T3: replay → the first consume succeeds, the second is rejected as already used; sendFn not called", async () => {
     tamperAP.mode = "replay";
-    vi.mocked(runScriptWithResultFile).mockResolvedValue({
-      ok: true,
-      result: { frame_id: "f1", style_name: "Body", affected_paragraphs: 1 },
-    });
     await expect(applyParagraphStyleTool.handler(validInput)).rejects.toThrow(
       "mutate_not_authorized: token not issued by this guard",
     );
-    // The first consume (inside replay) succeeds; sendFn is not called because
-    // the second call inside the tamper mock throws before returning a script.
+    // Precondition: the token WAS valid and consumed once, so the rejection is the single-use check and not a
+    // token that was unusable from the start. The second call inside the tamper mock throws before any script
+    // is returned, so the transport is never reached.
+    expect(tamperAP.firstConsumeOk).toBe(1);
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 

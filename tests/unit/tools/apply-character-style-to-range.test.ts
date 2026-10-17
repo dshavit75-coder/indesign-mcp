@@ -230,6 +230,8 @@ const tamperAC = vi.hoisted(() => ({
     | "replay"
     | "wrong_doc"
     | "body_swap",
+  /** Counts first consumptions that succeeded in "replay" mode (proof that the replay really is a second use). */
+  firstConsumeOk: 0,
 }));
 
 vi.mock("../../../src/compose.js", async (importOriginal) => {
@@ -245,8 +247,9 @@ vi.mock("../../../src/compose.js", async (importOriginal) => {
             documentId: opts.documentId,
           });
         if (tamperAC.mode === "replay") {
-          actual.wrapExtendScript(body, opts);
-          return actual.wrapExtendScript(body, opts);
+          actual.wrapExtendScript(body, opts); // consume once
+          tamperAC.firstConsumeOk++; // the first consume did not throw
+          return actual.wrapExtendScript(body, opts); // replay — should throw
         }
         if (tamperAC.mode === "wrong_doc")
           return actual.wrapExtendScript(body, {
@@ -274,6 +277,7 @@ describe("apply_character_style_to_range — Stage 7C tamper tests", () => {
 
   beforeEach(() => {
     tamperAC.mode = "passthrough";
+    tamperAC.firstConsumeOk = 0;
     vi.mocked(runScriptWithResultFile).mockReset();
   });
 
@@ -300,11 +304,13 @@ describe("apply_character_style_to_range — Stage 7C tamper tests", () => {
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 
-  it("AC-T3: replay → second consume throws; sendFn not called", async () => {
+  it("AC-T3: replay → the first consume succeeds, the second is rejected as already used; sendFn not called", async () => {
     tamperAC.mode = "replay";
     await expect(applyCharacterStyleToRangeTool.handler(validInput)).rejects.toThrow(
       "mutate_not_authorized: token not issued by this guard",
     );
+    // Precondition: the token WAS valid and consumed once (see AP-T3).
+    expect(tamperAC.firstConsumeOk).toBe(1);
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });
 

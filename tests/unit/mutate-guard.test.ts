@@ -5,8 +5,8 @@
  * MG2: bodyFn throws before the token is issued → error propagates, sendFn not called
  * MG3: wrapFn throws BEFORE consuming → sendFn not called and the issued token is revoked (cannot be consumed later)
  * MG4: sendFn throws AFTER wrapFn consumed the token → error propagates; no usable token remains (revoke is a silent no-op here)
- * MG5: bodyFn called before issueMutateToken (ordering)
- * MG6: wrapFn receives the token from issueMutateToken (not a different object)
+ * MG5: bodyFn is called exactly once, before wrapFn
+ * MG6: sendFn receives exactly the template that wrapFn returned
  * MG7: tamper body-swap in wrapFn → enforcement throws; sendFn not called
  * MG8: tamper documentId swap → enforcement throws; sendFn not called
  */
@@ -23,7 +23,7 @@ const BODY = `var x = 1; return { x: x };`;
 // MG1: happy path
 // ---------------------------------------------------------------------------
 describe("MG1: sendMutateScript happy path", () => {
-  it("calls sendFn exactly once and returns its result", async () => {
+  it("calls sendFn exactly once, with the wrapped template, and returns its result", async () => {
     const sendFn = vi.fn().mockResolvedValue({ result: "ok" });
     const result = await sendMutateScript(
       DOC,
@@ -33,6 +33,11 @@ describe("MG1: sendMutateScript happy path", () => {
       "MG1",
     );
     expect(sendFn).toHaveBeenCalledOnce();
+    // The argument of sendFn is the template wrapExtendScript produced for BODY. The wrapper does not depend on the
+    // token, so it can be recomputed with a separate token.
+    expect(sendFn).toHaveBeenCalledWith(
+      wrapExtendScript(BODY, { _mutateToken: issueMutateToken(DOC, BODY, "MG1-expected"), documentId: DOC }),
+    );
     expect(result).toEqual({ result: "ok" });
   });
 });
@@ -125,8 +130,8 @@ describe("MG4: sendFn throws after the token was consumed", () => {
 // ---------------------------------------------------------------------------
 // MG5: bodyFn called before issueMutateToken (ordering guarantee)
 // ---------------------------------------------------------------------------
-describe("MG5: ordering — bodyFn called before wrapFn", () => {
-  it("bodyFn return value is passed as the positional body to wrapFn", async () => {
+describe("MG5: bodyFn is called exactly once, before wrapFn", () => {
+  it("bodyFn runs once, then wrapFn runs (the exact call sequence is pinned)", async () => {
     const calls: string[] = [];
     const sendFn = vi.fn().mockResolvedValue("ok");
 
@@ -146,21 +151,27 @@ describe("MG5: ordering — bodyFn called before wrapFn", () => {
 });
 
 // ---------------------------------------------------------------------------
-// MG6: wrapFn receives the real token from issueMutateToken (not a stub)
+// MG6: sendFn receives exactly the template that wrapFn returned
+//
+// The guard must dispatch what wrapFn produced and nothing else. wrapFn appends a marker, so the test fails if
+// sendFn is given a different string (for example a rebuilt or unwrapped one).
 // ---------------------------------------------------------------------------
-describe("MG6: wrapFn receives a valid token", () => {
-  it("wrapFn tok passes WeakSet membership check in consumeMutateToken", async () => {
+describe("MG6: sendFn receives the template wrapFn returned", () => {
+  it("dispatches exactly the string returned by wrapFn", async () => {
     const sendFn = vi.fn().mockResolvedValue("ok");
-    // If tok were a stub, consumeMutateToken would throw; the happy path proves it is real.
-    await expect(
-      sendMutateScript(
-        DOC,
-        () => BODY,
-        (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
-        sendFn,
-        "MG6",
-      ),
-    ).resolves.toBe("ok");
+    const MARK = "\n/* MG6: appended by wrapFn */";
+    await sendMutateScript(
+      DOC,
+      () => BODY,
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }) + MARK,
+      sendFn,
+      "MG6",
+    );
+    const expected =
+      wrapExtendScript(BODY, { _mutateToken: issueMutateToken(DOC, BODY, "MG6-expected"), documentId: DOC }) + MARK;
+    expect(sendFn).toHaveBeenCalledOnce();
+    expect(sendFn.mock.calls[0][0]).toBe(expected);
+    expect(sendFn.mock.calls[0][0].endsWith(MARK)).toBe(true);
   });
 });
 

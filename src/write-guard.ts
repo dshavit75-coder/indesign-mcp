@@ -781,6 +781,13 @@ export function cleanupPlaceholder(path: string, expectedInode: number): void {
  * state and not a cause. When `final` cannot be verified, the result is `ok:false` / "uncertain" with an explicit
  * message; `final` and the temporary name are never deleted to repair that.
  *
+ * `ok:false` does NOT always mean that nothing was published. A failure to link (EEXIST, EPERM, ...) means nothing
+ * was published. The three "uncertain" results that start with "final could not be verified after publishing",
+ * "final refers to a different file than the one inspected" and "Published, but final could not be re-verified"
+ * are returned AFTER the link was made: `final` may exist, and it was not deleted. Callers must not treat every
+ * `ok:false` as "no file". src/tools/export-pdf.ts reports every `ok:false` under "Publishing failed:", so the
+ * messages above say explicitly what was and was not done.
+ *
  * Cleanup (R2b): the temporary name is removed only if it is still the same file as `final` (dev and ino) and is
  * a regular file; otherwise it is left in place. The check and `unlinkSync` run back to back with no `await`.
  *

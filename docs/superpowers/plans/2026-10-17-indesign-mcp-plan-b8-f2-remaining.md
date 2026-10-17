@@ -5,6 +5,8 @@ Approving this document is not approval to implement R1, R2 or R3; each step nee
 
 > **Status update (2026-10-17, code at `017ea78`, HEAD `729562e`):** R1, R2a and R2b are implemented and committed (see §13). **§1-§12 below are the plan as written on 2026-10-17 at `711b2f1` and are kept unchanged**; they are superseded only where a note marked "Status update" or §13 says so. The status lines above describe the document as it was first written. G16, G19, G20 and G5 are still open.
 
+> **Status update (2026-10-18, HEAD `769d5d1`):** a targeted exception to D2-d is implemented and committed in `769d5d1` (Stage 7C: a mutate token track for two tools; see §14). D2-d is **not repealed**. **21 of the 23 mutating tools are still ungated** (G5 stays open), and nothing was verified against a real InDesign.
+
 Reference: `main` at `711b2f1` (19 commits ahead of `origin/main`, not pushed), 2026-10-17. Source and `dist/` are unchanged since `0d7548f` (`git diff --stat 0d7548f HEAD -- src dist` is empty).
 Evidence levels as in v3.8: **Read** (read in code), **Ran** (command executed), **Assumption** (not yet verified), **Decision** (needs the owner). No InDesign run exists for any of this: real InDesign behaviour is UNVERIFIED.
 
@@ -13,6 +15,8 @@ Relationship to other documents: the F2 acceptance criteria F2-1 … F2-11 stay 
 ## 1. Consistency with decision D2-d
 
 7C (gating of the 23 mutating tools) is **deferred to B9** (decision D2-d, `711b2f1`). Nothing here returns it to B8. **G5 stays open on purpose: the 23 mutating tools have no enforcement that binds an edit to a document, and nothing in this plan changes that or claims otherwise.** This plan concerns only the write path of `save_document` and `export_pdf`.
+
+> *Status update (2026-10-18):* a targeted exception for two tools (`apply_paragraph_style`, `apply_character_style_to_range`) exists since `769d5d1`; the text above is the decision as recorded at `711b2f1` and is unchanged. D2-d is not repealed; see §14.
 
 ## 2. What is already done and what is open (Read, against the v3.8 document and the code)
 
@@ -223,6 +227,7 @@ This section was added after R1, R2a and R2b were implemented. §1-§12 above we
 - **G19 is only partly addressed:** window A (a foreign record of the same shape installed before entry) is accepted. Pinned by R2a-W4.
 - **G20 is open:** `sendWriteScript` can record `owned` for a file a competitor created during the export. No fix, no plan; a fix touches `sendWriteScript`.
 - **G5 is open:** the 23 mutating tools are not gated (deferred to B9 by decision D2-d).
+- *Status update (2026-10-18):* since `769d5d1` two of the 23 are on the mutate token track; 21 remain ungated (see §14).
 - A file swapped in before the link is detected only afterwards (R2b-S4) and is left in place, not deleted.
 - `publishPdfPart` returns `ok:false` also for a publish that already happened (messages "final could not be verified after publishing: ...", "final refers to a different file than the one inspected ...", "Published, but final could not be re-verified ..."), and `src/tools/export-pdf.ts` shows every `ok:false` under "Publishing failed:". A JSDoc note about this has not been written.
 - The registry state is still not reported to the caller (D-R2-2); G17 (message-prefix contract) and G18 (no `%PDF-` check) are unchanged.
@@ -231,3 +236,39 @@ This section was added after R1, R2a and R2b were implemented. §1-§12 above we
 ### 13.5 Documents and files not changed by this update
 
 `docs/superpowers/plans/2026-10-16-indesign-mcp-plan-b8-v3.8-reconciliation.md` stays at its historical reference point (714 tests, `0d7548f`); the specs, `README.md`, `docs/PROJECT_STATE.md`, the source and `dist/` are not touched by this edit.
+
+## 14. Stage 7C targeted exception to D2-d (appended 2026-10-18, HEAD `769d5d1`)
+
+This section was added after the Stage 7C changes were committed in `769d5d1` (10 files, 888 insertions, 16 deletions). §1-§13 above were not rewritten. Evidence levels as in §13: **Ran in the project tree**, **Ran in a scratch copy** (not repository tests, not reproducible by a repository command), **Read**. No InDesign was run: real InDesign behaviour is UNVERIFIED.
+
+### 14.1 Decision
+
+- A **targeted exception** to decision D2-d (`711b2f1`) covers **only** `apply_paragraph_style` and `apply_character_style_to_range`. **D2-d is not repealed.** The other **21 mutating tools stay on the legacy pass-through**, and extending the mutate track to them is left to B9.
+- The owner's approval of the exception was given **in conversation only**. It was not checked against a written plan: no original Stage 7C plan was found in the repository files or in git history (all refs, the reflog and unreachable objects). Claude Code session transcripts outside the project were matched by file name only and were **not opened**, so a plan may exist there. The files were created outside the session that reviewed them; **who created them is not known**.
+
+### 14.2 What was built (Read)
+
+- `src/mutate-capability.ts`: a single-use token bound to the exact script body (the positional argument of `wrapExtendScript`) and to the `documentId`. Consuming it checks, in this order, membership, body, `documentId`; a failed consume does not invalidate a valid token; success removes it.
+- `src/mutate-guard.ts`: `sendMutateScript` builds the body, issues the token, calls `wrapFn` (which must call `wrapExtendScript` with `_mutateToken`), then `sendFn`; a failure revokes the token.
+- `src/compose.ts`: a new `_mutateToken` branch in `wrapExtendScript` (after the write and read branches), which calls `consumeMutateToken` with the positional body.
+- `src/tools/apply-paragraph-style.ts` and `src/tools/apply-character-style-to-range.ts` send through `sendMutateScript`; `runScriptWithResultFile` is called only inside `sendFn`.
+
+### 14.3 Evidence, by kind
+
+- **Ran in the project tree:** `npm test` exit 0, **796** tests in 53 files (761 before, **35 new**: mutate-capability M1-M9, mutate-guard MG1-MG8, compose C-M1-C-M5, tamper AP-T1-T5 and AC-T1-T5); `tsc --noEmit` and `git diff --check` clean. The mocked InDesign transport is used throughout.
+- **Ran in a scratch copy (not repository tests):** mutation checks (no body check; no single-use; no `documentId` check; the mutate branch removed; the revoke removed; the write branch removed), each killed by the intended tests. The revoke mutation **survived** until MG3 and MG4 were rewritten and C-M4 was fixed; after that it is killed by MG3. Three probes showed the limits listed in 14.4.
+
+### 14.4 What is NOT guaranteed (open)
+
+- `sendMutateScript` does **not verify that `wrapFn` consumed the token**: a `wrapFn` that never calls `wrapExtendScript` makes `sendFn` run with an unenforced template and leaves the token live. The two converted tools wire it correctly.
+- The token does **not restrict the kind of operation**: a token can be issued for a body that saves or exports. The write track's operation check has no equivalent here.
+- `issueMutateToken` is exported (a policy boundary, not a runtime barrier). Callers of `runScriptWithResultFile` that do not go through the guard bypass it (G7 / Stage 7F).
+- `documentId` is bound to the value the tool passes, which is the same value used at consume time, so the check only catches a change in the middle of the chain. It is **not** verified against the document InDesign receives (G6, deferred to B9). Without `document_id` the script uses the active document.
+- There is no "uncertain outcome" tracking after a failed send, as `write-guard` has.
+- **21 of the 23 mutating tools are still ungated** (G5 stays open). G16, G19 and G20 stay open.
+- Low findings from the review, not fixed: an unused import in the paragraph-style tool test, the title of AP-T3, AP-T1 and AC-T1 check only that the transport was called once, MG5 and MG6 are weak.
+
+### 14.5 About the commit and the documents
+
+- The commit message of `769d5d1` has no `Co-Authored-By` trailer and does not state the split 796 total / 35 new; this section records it.
+- Not changed by this update: `README.md` and `docs/PROJECT_STATE.md` (still 761 unit tests; the update to 796 is a separate step), `src/`, `tests/`, `dist/`, `CLAUDE.md`. The v3.8 document received reference notes only.

@@ -126,6 +126,8 @@ IDs are stable references for §7 and §8.
 
 ---
 
+> *Status update (2026-10-18):* a targeted exception to D2-d is implemented in `769d5d1` for two tools (`apply_paragraph_style`, `apply_character_style_to_range`); G5 now applies to **21 of the 23** tools. D2-d is not repealed. See the F2 document, section 14. The table above is otherwise unchanged.
+
 ## 6. Step mapping — v3.7 plan vs. what happened
 
 The v3.7 stage numbers and the commit titles diverged. This table is the single mapping.
@@ -161,6 +163,8 @@ Order reflects dependencies. Each step: separate approval, a focused plan before
 | **6. Live tests (spec §7)** | L0, L-R, L3…; only on documents the test created; user runs each | steps 2, 4, 5 | any failure stops the sequence |
 | **7. 7F** | enforcement at the send point | D3 (touches protected `result-file.ts`) | explicit approval to modify `result-file.ts` |
 | **8. Docs, merge, build** | README/PROJECT_STATE corrections (G8), `compose.ts` comment (G9), then build | all above | build only with separate approval (G12) |
+
+> *Status update (2026-10-18):* step 3 (7C) is still deferred to B9 for 21 of the 23 tools; two tools have a mutate token track since `769d5d1` (a targeted exception, see the F2 document, section 14).
 
 ### F2 — completion criteria
 
@@ -212,6 +216,8 @@ Fact: the 23 legacy tools are the mutators (§2). A read-token analogue exists (
 | **D2-d. Defer all of 7C to B9** | B9 makes `document_id` required, then tokens can be bound meaningfully | binds tokens to something real instead of `null` | B8 ends with 23 ungated tools; the "legacy pass-through" remains until B9 |
 
 **Decision (2026-10-17): D2-d.** 7C is deferred to B9. B8 ends with the 23 tools ungated and G5 open (§5). D2-a, D2-b and D2-c are not implemented; the table above is kept as the record of the alternatives.
+
+> *Status update (2026-10-18):* D2-d stands. A targeted exception for two tools was implemented in `769d5d1` and approved by the owner in conversation; it does not repeal D2-d (see the F2 document, section 14).
 
 D2 depended partly on D1 (a body scan in `compose.ts` and `scriptClass` both live in `wrapExtendScript`).
 

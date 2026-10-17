@@ -3,6 +3,8 @@
 **Status: PLANNED. Nothing in this document is approved for implementation and nothing in it exists yet.**
 Approving this document is not approval to implement R1, R2 or R3; each step needs its own approval, its own commit, and no push.
 
+> **Status update (2026-10-17, code at `017ea78`, HEAD `729562e`):** R1, R2a and R2b are implemented and committed (see §13). **§1-§12 below are the plan as written on 2026-10-17 at `711b2f1` and are kept unchanged**; they are superseded only where a note marked "Status update" or §13 says so. The status lines above describe the document as it was first written. G16, G19, G20 and G5 are still open.
+
 Reference: `main` at `711b2f1` (19 commits ahead of `origin/main`, not pushed), 2026-10-17. Source and `dist/` are unchanged since `0d7548f` (`git diff --stat 0d7548f HEAD -- src dist` is empty).
 Evidence levels as in v3.8: **Read** (read in code), **Ran** (command executed), **Assumption** (not yet verified), **Decision** (needs the owner). No InDesign run exists for any of this: real InDesign behaviour is UNVERIFIED.
 
@@ -26,6 +28,8 @@ Relationship to other documents: the F2 acceptance criteria F2-1 … F2-11 stay 
 | F2-10, F2-11 | gates for every step, not tasks |
 
 Naming note: the documents call the save paths A / B / C (C = PDF); in the code `savePath` is `"A" | "B" | "pdf"` (`write-guard.ts:336`). This is a naming difference only and is not changed here.
+
+> *Status update (2026-10-17):* the table above is the state at `711b2f1`. R1 is done (`0dbe425`), F2-7(d) for `export_pdf` is partly covered by it and by R2a/R2b, and the state after R2a/R2b is in §13.
 
 ## 3. Facts verified in the code (Read)
 
@@ -52,6 +56,8 @@ Naming note: the documents call the save paths A / B / C (C = PDF); in the code 
 Each step: a separate approval, a focused plan before any edit, its own commit, no push, no `dist/` change, no change to `sendWriteScript`.
 
 ### R1 — tool-level registry tests for `export_pdf` (tests only)
+> *Status update (2026-10-17):* implemented and committed in `0dbe425` (11 tests in `tests/unit/tools/export-pdf.test.ts`). The text below is the plan as written.
+
 - **Closes:** the "not asserted at tool level" part of F2-7(d).
 - **Change:** `tests/unit/tools/export-pdf.test.ts` only.
 - **Content:** with the real guard on real files in `mkdtemp`, one test per failure path of `export_pdf` (empty / absent / non-regular `.part`, a non-EEXIST link failure, EEXIST, an exception after dispatch) asserting that the registry record is **not** `owned`; and that it is `owned` only after a successful publish (existing PX13).
@@ -60,6 +66,8 @@ Each step: a separate approval, a focused plan before any edit, its own commit, 
 - **R1-specific stop condition:** R1 is tests only. The tests for an empty, absent or non-regular `.part` (and every other R1 path) must pass against the **current** code. If one of them exposes that a required behaviour is **not implemented** (it fails for a reason other than a mistake in the test), **no code is changed within R1**: stop, report the failing test and the missing behaviour, and ask for a separate approval.
 
 ### R2 — `publishPdfPart` only: inode-verified removal and a guarded registry write (G16, G19)
+> *Status update (2026-10-17):* **superseded in part.** After this plan was written, R2 was split and implemented as **R2a** (`71751bb`: the guarded `owned` write) and **R2b** (`017ea78`: verification of `final` and a guarded cleanup of the temporary name); see §13 for what was built and how it differs. G16 is **not** closed. The text below is the plan as written.
+
 - **Closes:** G16 partly; G19 only to the extent allowed by the identity available (see below).
 - **Files approved for R2:** `src/write-guard.ts` (`publishPdfPart` only), `tests/unit/write-guard.test.ts`, `tests/unit/tools/export-pdf.test.ts`. **`src/tools/export-pdf.ts` and `sendWriteScript` are not approved for R2.**
 
@@ -101,6 +109,8 @@ The file is published once `link` succeeds; that is a fact and is reported as su
 - **R2-specific stop condition:** stop and ask for a separate approval if (a) `uncertain` cannot be kept without overwriting a foreign record (that is, any write would replace a record that is not the entry object), or (b) implementing the policy requires a file or an API outside the approved scope (`sendWriteScript`, `src/tools/export-pdf.ts`, the record type, the decision type, or a change of the `publishPdfPart` return shape, which belongs to R3). No code is widened to get around either case.
 
 ### R3 — a structured cause instead of the message-prefix contract (G17)
+> *Status update (2026-10-17):* not started.
+
 - **After R2** (same function; avoids editing it twice).
 - **Change:** the return type of `publishPdfPart` gains a structured cause (for example `code: "EEXIST"`), in `src/write-guard.ts`; `src/tools/export-pdf.ts` stops matching the message prefix; tests updated.
 - **Before the plan is written:** map every failure case of `publishPdfPart` (not found, not a regular file, EEXIST, other link error) and every caller and test (`export-pdf.ts:424`, the three `write-guard.test.ts` tests, the `export-pdf.test.ts` mocks and PX12b/PX12c). The existing return shape must stay compatible for those callers, or the tests that depend on it are updated in the same step.
@@ -122,6 +132,8 @@ R4, R5  deferred; each needs its own decision and plan
 F2-10, F2-11  gates for every step
 ```
 
+> *Status update (2026-10-17):* done in this order: R1 (`0dbe425`), then R2a (`71751bb`), then R2b (`017ea78`). R3, R4 and R5 have not started.
+
 ## 8. Files
 
 | Step | May change | Must not change |
@@ -131,6 +143,8 @@ F2-10, F2-11  gates for every step
 | R3 | `src/write-guard.ts` (`publishPdfPart` return), `src/tools/export-pdf.ts`, the tests above | `sendWriteScript`, `dist/` |
 | every step | — | `CLAUDE.md`, `package.json`, `package-lock.json`, `README.md`, `docs/PROJECT_STATE.md` (counts are updated only in a separate documentation step) |
 
+> *Status update (2026-10-17):* the table is the plan. In practice R2a and R2b changed `src/write-guard.ts` (`publishPdfPart` and a `Stats` type import) and the two test files; `src/tools/export-pdf.ts` and `sendWriteScript` were not changed.
+
 ## 9. Tests and validation (every step)
 
 - A focused run of the touched test files first, then `npm test` with the real count and the exit code recorded, then `npx tsc --noEmit`, `git diff --check`, `git status --short`, and a staging check.
@@ -138,6 +152,8 @@ F2-10, F2-11  gates for every step
 - Integration tests are **not run** (`npm run test:integration` is forbidden by `CLAUDE.md`); no InDesign operation.
 
 ## 10. Open risks
+
+> *Status update (2026-10-17):* the risks below were written at `711b2f1`; they all remain open except where §13 says a part is now covered. G16, G19 (window A), G20 and G5 are still open.
 
 - The `lstat` → `unlink` window remains after R2 (see R2).
 - Ownership of an existing `.part` is not proven by R2 or by any step here.
@@ -167,3 +183,51 @@ F2-10, F2-11  gates for every step
 6. **D-R2-1 (identity of the record) — owner's direction recorded:** O-c is the only option limited to R2, subject to a separate approval of the implementation. Window A stays open and O-c does not bind the record to the original write. O-a and O-b stay outside this plan and need their own plan and approval.
 7. **D-R2-2 (reporting the registry state only):** should the registry state after a publish be reported to the caller? That would need a change to `export-pdf.ts` (and probably to the `publishPdfPart` result), which is outside R2 and is not made here. Leftover or foreign files at `partPath` are a separate matter and may already be reported through `warnings`.
 8. **G20:** a separate plan (it touches `sendWriteScript`) or a documented limit. It is not part of R2 or R3, and R2's files do not include `sendWriteScript`.
+
+> *Status update (2026-10-17):* decision 6 (D-R2-1) was taken as written: O-c, implemented as R2a, window A still open. Decision 7 (D-R2-2) stays open: `publishPdfPart` still does not report the registry state to the caller. Decision 8 (G20) stays open: no plan exists. Decisions 3 and 4 (R4, R5) are untouched. See §13.
+
+## 13. Implementation record (appended 2026-10-17, code at `017ea78`, HEAD `729562e`)
+
+This section was added after R1, R2a and R2b were implemented. §1-§12 above were not rewritten. Evidence levels: **Ran in the project tree** (a command run on the repository), **Ran in a scratch copy** (a mutation or probe run in a copy outside the project; these are not repository tests and cannot be reproduced by a repository command), **Read** (read in code). No InDesign was run: real InDesign behaviour is UNVERIFIED.
+
+### 13.1 Commits
+
+| Step | Commit | What | `npm test` (Ran in the project tree, exit 0, 51 files) |
+| --- | --- | --- | --- |
+| R1 | `0dbe425` | 11 tests of the registry record on each `export_pdf` path (tests only) | 730 |
+| G20 documented | `aeaad4b` | G20 added to this document | — |
+| R2a | `71751bb` | `publishPdfPart` writes `owned` only for the expected entry record after a verified publish; 16 tests (7 in `write-guard.test.ts`, 9 in `export-pdf.test.ts`) | 746 |
+| R2b | `017ea78` | `publishPdfPart` verifies `final` and guards the cleanup of the temporary name; tests added or re-aimed in `export-pdf.test.ts` (net +15) | 761 |
+| count updates | `30312ee` (730), `274c466` (746), `729562e` (761) | `README.md` and `docs/PROJECT_STATE.md`, numbers only | — |
+
+> **Current state:** the unit-test count at HEAD `729562e` is **761** (`npm test`, exit 0, 51 files; the same figure as in `README.md` and `docs/PROJECT_STATE.md`). The counts 730, 746 and 761 in the table are the historical counts at the time of each step.
+
+`tsc --noEmit` and `git diff --check` were clean before each code commit (Ran in the project tree).
+
+### 13.2 What was built, and how it differs from the plan above
+
+- **R2 was split.** R2a is the registry guard (option O-c: the record seen on entry must have the expected shape and still be the same object at the last step). R2b is the verification and the cleanup. The split was decided after §5 was written, so §5 `R2` describes both as one unit.
+- **R2b policy as implemented.** `ok:true` confirms only that `final` was verified (lstat succeeded; same dev and ino as the file inspected on entry). It does not promise that the temporary name was removed or that nothing is left behind; that is reported by the tool's own observation of the temporary path, which describes a state and not a cause. The temporary name is removed only if it is still a regular file with the same dev and ino as `final`; the check and `unlinkSync` run with no `await`. If `final` cannot be verified (before the cleanup: lstat fails or a different file; after the removal: lstat fails or a different file), the result is `ok:false` / "uncertain" with an explicit message, `final` is never deleted, and `owned` is not written. `owned` is written only when `unlinkSync` succeeded, the verification after the removal passed, the entry record has the R2a shape, and the registry still holds that very record object.
+- **Changed relative to the R2a stage:** a `final` that cannot be verified after the link used to return `ok:true` (R2a, T5); it now returns `ok:false` uncertain (R2b). The tests that pinned the old behaviour were flipped.
+- **B1' was chosen** from the alternatives that were compared. B2'' and B4 (moving the temporary name aside) were **not** implemented.
+- **Not done:** R3, R4, R5; any change to `src/tools/export-pdf.ts` or `sendWriteScript`.
+
+### 13.3 Evidence, by kind
+
+- **Ran in the project tree:** the full unit suite, `tsc --noEmit` and `git diff --check` (see 13.1). Tests use a mocked InDesign transport; the real guard runs on real files in a temporary directory.
+- **Ran in a scratch copy (not repository tests):** mutation checks of `publishPdfPart` for R2a and R2b, and file-system probes. Every intended mutation was killed by the intended test. **Survivors, stated and not closed:** an `await` between the resumption after `await fs.link` and the first verification of `final` (no observation point exists there). The no-yield tests (Y1, Y2, Y3, Y5) detect only a new `await` after their probe points; they are **not** a protection against another process acting between two system calls.
+
+### 13.4 Still open (not closed by R1, R2a or R2b)
+
+- **G16 is NOT closed.** If another process replaces the temporary name between the check and `unlinkSync`, the file that replaced it is removed. R2b narrows the window and does not close it. Node has no removal conditioned on identity. Pinned by test R2b-S6 as a KNOWN LIMITATION.
+- **G19 is only partly addressed:** window A (a foreign record of the same shape installed before entry) is accepted. Pinned by R2a-W4.
+- **G20 is open:** `sendWriteScript` can record `owned` for a file a competitor created during the export. No fix, no plan; a fix touches `sendWriteScript`.
+- **G5 is open:** the 23 mutating tools are not gated (deferred to B9 by decision D2-d).
+- A file swapped in before the link is detected only afterwards (R2b-S4) and is left in place, not deleted.
+- `publishPdfPart` returns `ok:false` also for a publish that already happened (messages "final could not be verified after publishing: ...", "final refers to a different file than the one inspected ...", "Published, but final could not be re-verified ..."), and `src/tools/export-pdf.ts` shows every `ok:false` under "Publishing failed:". A JSDoc note about this has not been written.
+- The registry state is still not reported to the caller (D-R2-2); G17 (message-prefix contract) and G18 (no `%PDF-` check) are unchanged.
+- Nothing was verified against a real InDesign.
+
+### 13.5 Documents and files not changed by this update
+
+`docs/superpowers/plans/2026-10-16-indesign-mcp-plan-b8-v3.8-reconciliation.md` stays at its historical reference point (714 tests, `0d7548f`); the specs, `README.md`, `docs/PROJECT_STATE.md`, the source and `dist/` are not touched by this edit.

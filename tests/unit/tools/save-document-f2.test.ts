@@ -274,13 +274,12 @@ describe("save script — path B (F2-1, F2-2, F2-5)", () => {
     expect(saves).toEqual([path]);
   });
 
-  it("S7: file missing, different size, document swapped or fullName unreadable → stops, no save", async () => {
+  it("S7: file missing, different size or document swapped → stops, no save", async () => {
     const { path, tpl } = await pathBScript();
     const cases: Array<[Sim, string]> = [
       [{ fullName: path, target: { exists: false, length: 0 } }, "name_collision"],
       [{ fullName: path, target: { exists: true, length: 11 } }, "name_collision"],
       [{ fullName: "/Users/x/other.indd", target: { exists: true, length: 10 } }, "io_error"],
-      [{ fullName: "THROW", target: { exists: true, length: 10 } }, "io_error"],
     ];
     for (const [sim, kind] of cases) {
       const { env, saves } = runScript(tpl, sim);
@@ -289,6 +288,18 @@ describe("save script — path B (F2-1, F2-2, F2-5)", () => {
       expect(env.error.entity).toBe("save_precheck");
       expect(saves).toEqual([]);
     }
+  });
+
+  // Changed on purpose (live finding, 21.6.0.57): an UNKNOWN error while reading doc.fullName used to be
+  // swallowed into "" and reported as "document changed" (io_error / save_precheck). It is no longer
+  // swallowed: the original error comes back and nothing is saved. The recognised "never saved" case is
+  // covered in save-document-unsaved.test.ts.
+  it("S7b: fullName unreadable for an unknown reason → the original error, no save", async () => {
+    const { tpl } = await pathBScript();
+    const { env, saves } = runScript(tpl, { fullName: "THROW", target: { exists: true, length: 10 } });
+    expect(env.ok).toBe(false);
+    expect(env.error.message).toContain("no fullName");
+    expect(saves).toEqual([]);
   });
 });
 

@@ -44,6 +44,50 @@ const ScriptResultSchema = z.object({
 type ScriptResult = z.infer<typeof ScriptResultSchema>;
 
 // ---------------------------------------------------------------------------
+// Reading doc.fullName (shared by the pre-query and the save script)
+//
+// Observed live on InDesign 21.6.0.57 (one observation, not a guarantee): for a document that was
+// never saved, doc.fullName THROWS "Unsaved documents have no full name." (error number 90938) and
+// doc.filePath THROWS "Unsaved documents have no path." (90937). It does not return "".
+//
+// __readFullName returns "" ONLY when ALL of these hold; in every other case it re-throws the
+// ORIGINAL error of doc.fullName, so nothing unexpected is swallowed:
+//   - doc.saved === false;
+//   - doc.fullName threw an error that is the known one (number 90938, or a message that starts with
+//     "Unsaved documents have no");
+//   - doc.filePath ALSO threw, and its error is the known one (number 90937, or a message that starts
+//     with "Unsaved documents have no").
+// If InDesign words these errors differently (other language or version) the save fails closed with
+// the original error. In the SAVE script that error is re-thrown with entity "save_precheck" (the read happens
+// before doc.save), so a path-A placeholder can be removed; the pre-query rethrows it unchanged.
+// No JSON, no ES5-only methods (ExtendScript is pre-ES5).
+// ---------------------------------------------------------------------------
+
+const READ_FULLNAME_HELPER = `
+function __errField(e, k) { try { return e[k]; } catch (x) { return undefined; } }
+function __isKnownUnsavedError(e, num) {
+  if (__errField(e, "number") === num) return true;
+  var m = __errField(e, "message");
+  return typeof m === "string" && m.indexOf("Unsaved documents have no") === 0;
+}
+function __readFullName(doc) {
+  try {
+    return String(doc.fullName);
+  } catch (e1) {
+    if (doc.saved !== false) throw e1;
+    if (!__isKnownUnsavedError(e1, 90938)) throw e1;
+    var __pathThrew = false;
+    try { String(doc.filePath); } catch (e2) {
+      if (!__isKnownUnsavedError(e2, 90937)) throw e1;
+      __pathThrew = true;
+    }
+    if (!__pathThrew) throw e1;
+    return "";
+  }
+}
+`.trim();
+
+// ---------------------------------------------------------------------------
 // Pre-query: read-only call to resolve documentId and fullName
 // This does NOT use write-guard because it is read-only.
 // ---------------------------------------------------------------------------
@@ -55,7 +99,7 @@ function buildPreQueryScript(inputDocumentId: string | undefined): string {
       : "app.activeDocument";
 
   return `
-${prelude(findDocumentById)}
+${prelude(findDocumentById, READ_FULLNAME_HELPER)}
 if (app.documents.length === 0) {
   throw { name: "not_found", message: "no open document" };
 }
@@ -63,7 +107,7 @@ var doc = ${docExpr};
 if (doc === null) {
   throw { name: "not_found", message: "document not found: " + ${inputDocumentId !== undefined ? lit(inputDocumentId) : '""'} };
 }
-return { documentId: String(doc.id), fullName: String(doc.fullName) };
+return { documentId: String(doc.id), fullName: __readFullName(doc) };
 `;
 }
 
@@ -104,13 +148,19 @@ function buildSaveScript(
 }`;
 
   return `
-${prelude(findDocumentById)}
+${prelude(findDocumentById, READ_FULLNAME_HELPER)}
 var doc = ${docExpr};
 if (doc === null) {
   throw { name: "not_found", entity: "save_precheck", message: "document not found during save: " + ${lit(documentId)} };
 }
-var __fullName = "";
-try { __fullName = String(doc.fullName); } catch (e) { __fullName = ""; }
+var __fullName;
+try {
+  __fullName = __readFullName(doc);
+} catch (__e) {
+  // Still BEFORE doc.save: say so with the save_precheck entity (the proof that nothing was written, which is
+  // what lets a path-A placeholder be removed), and keep the original message. Nothing is swallowed.
+  throw { name: "script_error", entity: "save_precheck", message: String(__errField(__e, "message") || __e), stack: String(__errField(__e, "stack") || "") };
+}
 if (__fullName !== ${lit(checks.expectedFullName)}) {
   throw { name: "io_error", entity: "save_precheck", message: "document changed between query and save: expected fullName " + ${lit(checks.expectedFullName)} + ", found " + __fullName };
 }
@@ -248,11 +298,12 @@ const saveDocumentUnlocked = defineTool<Input, { path: string }>({
       targetAbsolutePath = resolveUserPath(input.path);
       operation = "save-as";
     } else {
-      // In-place save: use the document's current fullName
+      // In-place save: use the document's current fullName.
       //
-      // Assumption ט.1: doc.fullName returns "" (empty string) for an
-      // unsaved/Untitled document. Per fail-closed rule: refuse if fullName is
-      // empty or non-absolute.
+      // For a never-saved document the pre-query returns "" (see __readFullName: InDesign 21.6.0.57
+      // throws for doc.fullName, error 90938, and for doc.filePath, 90937; the helper maps exactly that
+      // pair, with doc.saved === false, to ""). Per the fail-closed rule: refuse if fullName is
+      // empty or not absolute.
       if (!fullName || !fullName.startsWith("/")) {
         return fail(
           "io_error",

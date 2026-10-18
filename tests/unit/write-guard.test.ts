@@ -478,6 +478,69 @@ describe("path C: bypass attempts", () => {
 });
 
 // ---------------------------------------------------------------------------
+// suggested_path: the suggestion keeps the extension the caller expects (found live: an existing PDF got
+// "<name>.pdf_cod_v1.indd"). The REAL decideWrite and real files in a temporary directory.
+// ---------------------------------------------------------------------------
+
+describe("suggested_path keeps the expected extension", () => {
+  async function refuse(path: string, ext: ".indd" | ".pdf") {
+    const tool = ext === ".pdf" ? "export_pdf" : "save_document";
+    const operation = ext === ".pdf" ? "export-pdf" : "save-as";
+    const r = await decideWrite({ tool, operation, documentId: "doc1", path, expectedExtension: ext } as Parameters<typeof decideWrite>[0]);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("expected a refusal");
+    return r;
+  }
+
+  it("SP1: an existing PDF → a suggestion that ends in .pdf, not .indd, and is the first free _cod_vN name", async () => {
+    const path = tmpDir + "/Album.pdf";
+    touchFile(path);
+    const r = await refuse(path, ".pdf");
+    expect(r.suggested_path).toBe(tmpDir + "/Album_cod_v1.pdf");
+    expect(r.suggested_path!.endsWith(".pdf")).toBe(true);
+    expect(r.suggested_path!.endsWith(".indd")).toBe(false);
+    expect(r.suggested_path).not.toContain(".pdf_cod");
+  });
+
+  it("SP2: the suggested PDF name does not exist; taken names are skipped (v1 taken → v2)", async () => {
+    touchFile(tmpDir + "/Album.pdf");
+    touchFile(tmpDir + "/Album_cod_v1.pdf");
+    const r = await refuse(tmpDir + "/Album.pdf", ".pdf");
+    expect(r.suggested_path).toBe(tmpDir + "/Album_cod_v2.pdf");
+    expect(nodeFs.existsSync(r.suggested_path!)).toBe(false);
+  });
+
+  it("SP3: a PDF whose name ends in _cod → the _cod is not doubled", async () => {
+    touchFile(tmpDir + "/Album_cod.pdf");
+    const r = await refuse(tmpDir + "/Album_cod.pdf", ".pdf");
+    expect(r.suggested_path).toBe(tmpDir + "/Album_cod_v1.pdf");
+  });
+
+  it("SP4: an upper-case .PDF extension (accepted by pathGate) is stripped too", async () => {
+    touchFile(tmpDir + "/Album.PDF");
+    const r = await refuse(tmpDir + "/Album.PDF", ".pdf");
+    expect(r.suggested_path).toBe(tmpDir + "/Album_cod_v1.pdf");
+  });
+
+  it("SP5: INDD is unchanged: a user file → <name>_cod_v1.indd, and v1 taken → v2", async () => {
+    touchFile(tmpDir + "/user_file.indd");
+    let r = await refuse(tmpDir + "/user_file.indd", ".indd");
+    expect(r.suggested_path).toBe(tmpDir + "/user_file_cod_v1.indd");
+    touchFile(tmpDir + "/user_file_cod_v1.indd");
+    r = await refuse(tmpDir + "/user_file.indd", ".indd");
+    expect(r.suggested_path).toBe(tmpDir + "/user_file_cod_v2.indd");
+  });
+
+  it("SP6: a PDF refusal still reports the existing path and the not_owned reason (contract unchanged)", async () => {
+    touchFile(tmpDir + "/Album.pdf");
+    const r = await refuse(tmpDir + "/Album.pdf", ".pdf");
+    expect(r.kind).toBe("name_collision");
+    expect(r.reason).toBe("not_owned");
+    expect(r.existing_path).toBe(tmpDir + "/Album.pdf");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sendWriteScript: 0 sends on refusal
 // ---------------------------------------------------------------------------
 

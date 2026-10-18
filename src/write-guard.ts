@@ -373,7 +373,7 @@ export async function decideWrite(opts: {
   // PDF: never allow overwriting any existing file
   if (opts.expectedExtension === ".pdf") {
     if (lstatResult === "regular") {
-      const suggested = await computeSuggestedNameIndd(finalPath);
+      const suggested = await computeSuggestedName(finalPath, opts.expectedExtension);
       return {
         ok: false,
         kind: "name_collision",
@@ -430,7 +430,7 @@ export async function decideWrite(opts: {
     }
     const currentFp = fingerprintFromStat(currentStat);
     if (!fingerprintEqual(currentFp, record.fingerprint)) {
-      const suggested = await computeSuggestedNameIndd(finalPath);
+      const suggested = await computeSuggestedName(finalPath, opts.expectedExtension);
       return {
         ok: false,
         kind: "name_collision",
@@ -469,7 +469,7 @@ export async function decideWrite(opts: {
     reason = "fingerprint_mismatch";
     message = `file fingerprint does not match: ${JSON.stringify(finalPath)}`;
   }
-  const suggested = await computeSuggestedNameIndd(finalPath);
+  const suggested = await computeSuggestedName(finalPath, opts.expectedExtension);
   return {
     ok: false,
     kind: "name_collision",
@@ -480,13 +480,21 @@ export async function decideWrite(opts: {
   };
 }
 
-/** Compute the next free _cod_vN.indd name as a suggested path. */
-async function computeSuggestedNameIndd(existingPath: string): Promise<string> {
+/**
+ * Suggest a free name next to `existingPath`: `<base>_cod_vN<ext>` (N = 1..99, first one that does not exist).
+ * `ext` is the extension the caller expects (".indd" or ".pdf") and is the extension of the suggestion; before
+ * this took the extension from the INDD name only, so an existing PDF got "<name>.pdf_cod_v1.indd" (found live).
+ * For ".indd" the behaviour is unchanged (only a trailing ".indd" is stripped). For ".pdf" the file's own
+ * extension is stripped whatever its case (pathGate accepts ".PDF" too).
+ */
+async function computeSuggestedName(existingPath: string, ext: ".indd" | ".pdf"): Promise<string> {
   const dir = dirname(existingPath);
-  const fileNameNoExt = basename(existingPath, ".indd");
+  const fileNameNoExt = ext === ".pdf"
+    ? basename(existingPath, extname(existingPath))
+    : basename(existingPath, ".indd");
   const base = fileNameNoExt.endsWith("_cod") ? fileNameNoExt.slice(0, -4) : fileNameNoExt;
   for (let n = 1; n <= 99; n++) {
-    const candidate = `${base}_cod_v${n}.indd`;
+    const candidate = `${base}_cod_v${n}${ext}`;
     const candidatePath = dir + "/" + candidate;
     try {
       lstatSync(candidatePath);
@@ -494,7 +502,7 @@ async function computeSuggestedNameIndd(existingPath: string): Promise<string> {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return candidatePath;
     }
   }
-  return dir + `/${base}_cod_v99.indd`;
+  return dir + `/${base}_cod_v99${ext}`;
 }
 
 // ---------------------------------------------------------------------------

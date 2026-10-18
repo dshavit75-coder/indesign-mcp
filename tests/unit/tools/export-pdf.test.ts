@@ -951,6 +951,30 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     expect(realFs.readdirSync(dir)).toEqual([]); // nothing was created in the directory
   });
 
+  it("PX14: existing PDF with the REAL decideWrite → pdf_replace_blocked, suggested_path ends in .pdf and is free, the file is untouched, nothing sent", async () => {
+    const finalPath = join(dir, "taken.pdf");
+    realFs.writeFileSync(finalPath, "KEEP ME");
+    mockPreQueryOk();
+    mockDecideWrite.mockImplementationOnce(((...a: Parameters<typeof realWg.decideWrite>) => realWg.decideWrite(...a)) as never);
+
+    const result = await exportPdfTool.handler({ path: finalPath });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("pdf_replace_blocked");
+      expect(result.error.existing_path).toBe(finalPath);
+      expect(result.error.reason).toBe("not_owned");
+      expect(result.error.suggested_path).toBe(join(dir, "taken_cod_v1.pdf"));
+      expect(String(result.error.suggested_path).endsWith(".indd")).toBe(false);
+      expect(realFs.existsSync(String(result.error.suggested_path))).toBe(false);
+    }
+    expect(realFs.readFileSync(finalPath, "utf8")).toBe("KEEP ME");
+    expect(mockSendWriteScript).not.toHaveBeenCalled();
+    expect(mockPublishPdfPart).not.toHaveBeenCalled();
+    expect(mockRunScript).toHaveBeenCalledTimes(1); // the pre-query only
+    expect(realFs.readdirSync(dir)).toEqual(["taken.pdf"]);
+  });
+
   it("PX1a2: the REAL operation check refuses a body without exportFile( → write_not_authorized, nothing sent", async () => {
     const finalPath = join(dir, "out.pdf");
     mockPreQueryOk();

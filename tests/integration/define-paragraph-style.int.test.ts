@@ -11,12 +11,15 @@ integrationGate("define_paragraph_style (integration)", () => {
   it(
     "creates a basic paragraph style",
     async () => {
-      await createDocumentTool.handler({
+      const create1 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create1.ok) return;
+      const docId1 = create1.result!.document_id;
 
       const env = await defineParagraphStyleTool.handler({
+        document_id: docId1,
         name: "Body",
         size_pt: 11,
         leading_pt: 14,
@@ -34,12 +37,15 @@ integrationGate("define_paragraph_style (integration)", () => {
   it(
     "creates a paragraph style with color, returns swatch_id",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
+      const docId2 = create2.result!.document_id;
 
       const env = await defineParagraphStyleTool.handler({
+        document_id: docId2,
         name: "Headline",
         size_pt: 36,
         color_hex: "#FF6600",
@@ -54,15 +60,18 @@ integrationGate("define_paragraph_style (integration)", () => {
   it(
     "name_collision when style exists and on_collision is 'error'",
     async () => {
-      await createDocumentTool.handler({
+      const create3 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create3.ok) return;
+      const docId3 = create3.result!.document_id;
 
-      const first = await defineParagraphStyleTool.handler({ name: "Body" });
+      const first = await defineParagraphStyleTool.handler({ document_id: docId3, name: "Body" });
       expect(first.ok).toBe(true);
 
       const second = await defineParagraphStyleTool.handler({
+        document_id: docId3,
         name: "Body",
         on_collision: "error",
       });
@@ -76,15 +85,18 @@ integrationGate("define_paragraph_style (integration)", () => {
   it(
     "on_collision 'version' creates 'Body 2' when 'Body' exists",
     async () => {
-      await createDocumentTool.handler({
+      const create4 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create4.ok) return;
+      const docId4 = create4.result!.document_id;
 
-      const first = await defineParagraphStyleTool.handler({ name: "Body" });
+      const first = await defineParagraphStyleTool.handler({ document_id: docId4, name: "Body" });
       expect(first.ok).toBe(true);
 
       const second = await defineParagraphStyleTool.handler({
+        document_id: docId4,
         name: "Body",
         on_collision: "version",
       });

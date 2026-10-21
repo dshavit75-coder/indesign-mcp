@@ -10,7 +10,7 @@ const InputSchema = z
   .object({
     page_id: z.string().min(1),
     parent_item_id: z.string().min(1),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict();
 
@@ -33,9 +33,7 @@ interface Result {
 
 function buildScriptBody(input: Input): string {
   const docExpr =
-    input.document_id !== undefined
-      ? `findDocumentById(${lit(input.document_id)})`
-      : "app.activeDocument";
+    `findDocumentById(${lit(input.document_id)})`;
 
   return `
 ${prelude(findDocumentById, findPageById, findFrameById)}

@@ -22,6 +22,7 @@ integrationGate("find_replace (integration)", () => {
       const pageId = docEnv.result!.page_ids[0];
 
       const frameEnv = await createTextFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 20, y: 20, width: 160, height: 60 },
       });
@@ -29,11 +30,12 @@ integrationGate("find_replace (integration)", () => {
       if (!frameEnv.ok) return;
 
       await setTextTool.handler({
+        document_id: docEnv.result!.document_id,
         frame_id: frameEnv.result!.frame_id,
         text: "Total displaced: 1.5M people",
       });
 
-      const env = await findReplaceTool.handler({ find: "people", replace: "individuals" });
+      const env = await findReplaceTool.handler({ document_id: docEnv.result!.document_id, find: "people", replace: "individuals" });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.result?.matches_changed).toBe(1);
@@ -47,12 +49,13 @@ integrationGate("find_replace (integration)", () => {
   it(
     "returns 0 when find string is not in the document",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 20, bottom: 20, left: 20, right: 20 },
       });
+      if (!create2.ok) return;
 
-      const env = await findReplaceTool.handler({ find: "xyzzy_notpresent", replace: "b" });
+      const env = await findReplaceTool.handler({ document_id: create2.result!.document_id, find: "xyzzy_notpresent", replace: "b" });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.result?.matches_changed).toBe(0);
@@ -72,6 +75,7 @@ integrationGate("find_replace (integration)", () => {
       const pageId = docEnv.result!.page_ids[0];
 
       const frame1Env = await createTextFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 20, y: 20, width: 160, height: 40 },
       });
@@ -80,6 +84,7 @@ integrationGate("find_replace (integration)", () => {
       const frame1Id = frame1Env.result!.frame_id;
 
       const frame2Env = await createTextFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 20, y: 80, width: 160, height: 40 },
       });
@@ -87,11 +92,12 @@ integrationGate("find_replace (integration)", () => {
       if (!frame2Env.ok) return;
       const frame2Id = frame2Env.result!.frame_id;
 
-      await setTextTool.handler({ frame_id: frame1Id, text: "Hello world" });
-      await setTextTool.handler({ frame_id: frame2Id, text: "Hello world" });
+      await setTextTool.handler({ document_id: docEnv.result!.document_id, frame_id: frame1Id, text: "Hello world" });
+      await setTextTool.handler({ document_id: docEnv.result!.document_id, frame_id: frame2Id, text: "Hello world" });
 
       // Replace only in frame1 — only 1 match, not 2
       const env = await findReplaceTool.handler({
+        document_id: docEnv.result!.document_id,
         find: "world",
         replace: "there",
         scope: "frame",
@@ -117,6 +123,7 @@ integrationGate("find_replace (integration)", () => {
       const pageId = docEnv.result!.page_ids[0];
 
       const frameEnv = await createTextFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 20, y: 20, width: 160, height: 60 },
       });
@@ -124,12 +131,14 @@ integrationGate("find_replace (integration)", () => {
       if (!frameEnv.ok) return;
 
       await setTextTool.handler({
+        document_id: docEnv.result!.document_id,
         frame_id: frameEnv.result!.frame_id,
         text: "cat and Cat and CAT",
       });
 
       // GREP is case-sensitive by default in InDesign — match lowercase "cat" only
       const env = await findReplaceTool.handler({
+        document_id: docEnv.result!.document_id,
         find: "cat",
         replace: "dog",
         mode: "grep",

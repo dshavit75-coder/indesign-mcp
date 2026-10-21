@@ -20,21 +20,36 @@ describe("create_text_frame tool", () => {
 
   it("accepts a minimal valid input", () => {
     const result = createTextFrameTool.inputSchema.safeParse({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
     });
     expect(result.success).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(createTextFrameTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(createTextFrameTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(createTextFrameTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects zero or negative width/height", () => {
     expect(
       createTextFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 0, height: 50 },
       }).success,
     ).toBe(false);
     expect(
       createTextFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: -1 },
       }).success,
@@ -44,6 +59,7 @@ describe("create_text_frame tool", () => {
   it("rejects negative x/y", () => {
     expect(
       createTextFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: -1, y: 10, width: 100, height: 50 },
       }).success,
@@ -53,6 +69,7 @@ describe("create_text_frame tool", () => {
   it("accepts initial_text", () => {
     expect(
       createTextFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
         initial_text: "Hello, world",
@@ -67,6 +84,7 @@ describe("create_text_frame tool", () => {
     });
 
     await createTextFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 20, width: 100, height: 50 },
     });
@@ -83,6 +101,7 @@ describe("create_text_frame tool", () => {
     });
 
     await createTextFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 20, width: 100, height: 50 },
       initial_text: "Headline goes here",
@@ -100,6 +119,7 @@ describe("create_text_frame tool", () => {
     });
 
     const env = await createTextFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
     });
@@ -119,6 +139,7 @@ describe("create_text_frame tool", () => {
     });
 
     const env = await createTextFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p99",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
     });

@@ -21,6 +21,7 @@ integrationGate("duplicate_frame (integration)", () => {
       const pageId = docEnv.result!.page_ids[0];
 
       const frameEnv = await createTextFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 20, y: 20, width: 80, height: 40 },
       });
@@ -28,7 +29,7 @@ integrationGate("duplicate_frame (integration)", () => {
       if (!frameEnv.ok) return;
       const sourceId = frameEnv.result!.frame_id;
 
-      const dupEnv = await duplicateFrameTool.handler({ frame_id: sourceId });
+      const dupEnv = await duplicateFrameTool.handler({ document_id: docEnv.result!.document_id, frame_id: sourceId });
       expect(dupEnv.ok).toBe(true);
       if (!dupEnv.ok) return;
       expect(dupEnv.result?.source_frame_id).toBe(sourceId);
@@ -55,6 +56,7 @@ integrationGate("duplicate_frame (integration)", () => {
       const pageId = docEnv.result!.page_ids[0];
 
       const frameEnv = await createTextFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 20, y: 20, width: 80, height: 40 },
       });
@@ -63,6 +65,7 @@ integrationGate("duplicate_frame (integration)", () => {
       const sourceId = frameEnv.result!.frame_id;
 
       const dupEnv = await duplicateFrameTool.handler({
+        document_id: docEnv.result!.document_id,
         frame_id: sourceId,
         offset_mm: { x: 0, y: 50 },
       });
@@ -76,12 +79,13 @@ integrationGate("duplicate_frame (integration)", () => {
   it(
     "not_found when frame_id is invalid",
     async () => {
-      await createDocumentTool.handler({
+      const create3 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 20, bottom: 20, left: 20, right: 20 },
       });
+      if (!create3.ok) return;
 
-      const env = await duplicateFrameTool.handler({ frame_id: "nonexistent-999" });
+      const env = await duplicateFrameTool.handler({ document_id: create3.result!.document_id, frame_id: "nonexistent-999" });
       expect(env.ok).toBe(false);
       if (env.ok) return;
       expect(env.error.kind).toBe("not_found");

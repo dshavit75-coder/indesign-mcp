@@ -20,6 +20,7 @@ integrationGate("set_frame_columns (integration)", () => {
       if (!create.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 100 },
       });
@@ -27,6 +28,7 @@ integrationGate("set_frame_columns (integration)", () => {
       if (!frame.ok) return;
 
       const env = await setFrameColumnsTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         count: 2,
       });
@@ -52,6 +54,7 @@ integrationGate("set_frame_columns (integration)", () => {
       if (!create.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 100 },
       });
@@ -59,6 +62,7 @@ integrationGate("set_frame_columns (integration)", () => {
       if (!frame.ok) return;
 
       const env = await setFrameColumnsTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         count: 3,
         gutter_mm: 5,
@@ -80,6 +84,7 @@ integrationGate("set_frame_columns (integration)", () => {
       if (!create.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 100 },
       });
@@ -88,11 +93,13 @@ integrationGate("set_frame_columns (integration)", () => {
 
       // First set to 2 columns, then collapse back to 1.
       await setFrameColumnsTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         count: 2,
       });
 
       const env = await setFrameColumnsTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         count: 1,
       });
@@ -113,6 +120,7 @@ integrationGate("set_frame_columns (integration)", () => {
 
       const { createRectangleTool } = await import("../../src/tools/create-rectangle.js");
       const rect = await createRectangleTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 20, y: 20, width: 80, height: 60 },
       });
@@ -120,6 +128,7 @@ integrationGate("set_frame_columns (integration)", () => {
       if (!rect.ok) return;
 
       const env = await setFrameColumnsTool.handler({
+        document_id: create.result!.document_id,
         frame_id: rect.result!.frame_id,
         count: 2,
       });

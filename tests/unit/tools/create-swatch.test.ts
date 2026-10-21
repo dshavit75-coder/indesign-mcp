@@ -20,62 +20,74 @@ describe("create_swatch tool", () => {
 
   // --- Schema validation ---
 
+  it("rejects missing document_id", () => {
+    expect(createSwatchTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(createSwatchTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(createSwatchTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("requires name and hex", () => {
-    expect(createSwatchTool.inputSchema.safeParse({ name: "Brand Orange" }).success).toBe(false);
-    expect(createSwatchTool.inputSchema.safeParse({ hex: "#FF6600" }).success).toBe(false);
+    expect(createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "Brand Orange" }).success).toBe(false);
+    expect(createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", hex: "#FF6600" }).success).toBe(false);
   });
 
   it("accepts name + hex", () => {
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "Brand Orange", hex: "#FF6600" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "Brand Orange", hex: "#FF6600" }).success,
     ).toBe(true);
   });
 
   it("rejects empty name", () => {
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "", hex: "#FF6600" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "", hex: "#FF6600" }).success,
     ).toBe(false);
   });
 
   it("rejects name longer than 60 chars", () => {
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "A".repeat(61), hex: "#FF6600" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "A".repeat(61), hex: "#FF6600" }).success,
     ).toBe(false);
   });
 
   it("rejects invalid hex formats", () => {
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "red" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "red" }).success,
     ).toBe(false);
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "#XYZ000" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "#XYZ000" }).success,
     ).toBe(false);
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "#FF" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "#FF" }).success,
     ).toBe(false);
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "FF6600" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "FF6600" }).success,
     ).toBe(false);
   });
 
   it("accepts valid hex — both cases", () => {
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "#FF6600" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "#FF6600" }).success,
     ).toBe(true);
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "#ff6600" }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "#ff6600" }).success,
     ).toBe(true);
   });
 
   it("accepts on_collision values: error / update / version", () => {
     for (const c of ["error", "update", "version"] as const) {
       expect(
-        createSwatchTool.inputSchema.safeParse({ name: "X", hex: "#FF6600", on_collision: c }).success,
+        createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "#FF6600", on_collision: c }).success,
       ).toBe(true);
     }
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       createSwatchTool.inputSchema.safeParse({
         name: "X",
@@ -87,7 +99,7 @@ describe("create_swatch tool", () => {
 
   it("rejects extra keys (strict schema)", () => {
     expect(
-      createSwatchTool.inputSchema.safeParse({ name: "X", hex: "#FF6600", extra: true }).success,
+      createSwatchTool.inputSchema.safeParse({ document_id: "doc-1", name: "X", hex: "#FF6600", extra: true }).success,
     ).toBe(false);
   });
 
@@ -99,7 +111,7 @@ describe("create_swatch tool", () => {
       result: { swatch_name: "Brand Orange", swatch_id: "sw1", on_collision_outcome: "created" },
     });
 
-    await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+    await createSwatchTool.handler({ document_id: "doc-1", name: "Brand Orange", hex: "#FF6600" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("doc.colors");
@@ -114,7 +126,7 @@ describe("create_swatch tool", () => {
       result: { swatch_name: "X", swatch_id: "sw1", on_collision_outcome: "created" },
     });
 
-    await createSwatchTool.handler({ name: "X", hex: "#FF6600" });
+    await createSwatchTool.handler({ document_id: "doc-1", name: "X", hex: "#FF6600" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     // #FF6600 → r=255, g=102, b=0 (parsed server-side, embedded as decimals).
@@ -127,7 +139,7 @@ describe("create_swatch tool", () => {
       result: { swatch_name: "X", swatch_id: "sw1", on_collision_outcome: "created" },
     });
 
-    await createSwatchTool.handler({ name: "X", hex: "#FF6600", on_collision: "error" });
+    await createSwatchTool.handler({ document_id: "doc-1", name: "X", hex: "#FF6600", on_collision: "error" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("name_collision");
@@ -139,7 +151,7 @@ describe("create_swatch tool", () => {
       result: { swatch_name: "X 2", swatch_id: "sw1", on_collision_outcome: "versioned" },
     });
 
-    await createSwatchTool.handler({ name: "X", hex: "#FF6600", on_collision: "version" });
+    await createSwatchTool.handler({ document_id: "doc-1", name: "X", hex: "#FF6600", on_collision: "version" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("baseName");
@@ -153,7 +165,7 @@ describe("create_swatch tool", () => {
       result: { swatch_name: "Brand Orange", swatch_id: "sw42", on_collision_outcome: "created" },
     });
 
-    const env = await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+    const env = await createSwatchTool.handler({ document_id: "doc-1", name: "Brand Orange", hex: "#FF6600" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -168,7 +180,7 @@ describe("create_swatch tool", () => {
       result: { swatch_name: "Brand Orange", swatch_id: "sw1", on_collision_outcome: "created" },
     });
 
-    const env = await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+    const env = await createSwatchTool.handler({ document_id: "doc-1", name: "Brand Orange", hex: "#FF6600" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -182,6 +194,7 @@ describe("create_swatch tool", () => {
     });
 
     const env = await createSwatchTool.handler({
+      document_id: "doc-1",
       name: "Brand Orange",
       hex: "#FF6600",
       on_collision: "version",
@@ -199,6 +212,7 @@ describe("create_swatch tool", () => {
     });
 
     const env = await createSwatchTool.handler({
+      document_id: "doc-1",
       name: "Brand Orange",
       hex: "#FF6600",
       on_collision: "update",
@@ -215,7 +229,7 @@ describe("create_swatch tool", () => {
       error: { kind: "name_collision", message: "swatch Brand Orange already exists" },
     });
 
-    const env = await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+    const env = await createSwatchTool.handler({ document_id: "doc-1", name: "Brand Orange", hex: "#FF6600" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("name_collision");

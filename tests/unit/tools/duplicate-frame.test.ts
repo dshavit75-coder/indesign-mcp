@@ -20,19 +20,32 @@ describe("duplicate_frame tool", () => {
 
   // --- Schema validation ---
 
+  it("rejects missing document_id", () => {
+    expect(duplicateFrameTool.inputSchema.safeParse({ frame_id: "f1" }).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(duplicateFrameTool.inputSchema.safeParse({ document_id: "", frame_id: "f1" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(duplicateFrameTool.inputSchema.safeParse({ document_id: "   ", frame_id: "f1" }).success).toBe(false);
+  });
+
   it("requires frame_id", () => {
     expect(duplicateFrameTool.inputSchema.safeParse({}).success).toBe(false);
   });
 
   it("accepts frame_id alone (no offset)", () => {
     expect(
-      duplicateFrameTool.inputSchema.safeParse({ frame_id: "f1" }).success,
+      duplicateFrameTool.inputSchema.safeParse({ document_id: "doc-1", frame_id: "f1" }).success,
     ).toBe(true);
   });
 
   it("accepts frame_id + offset_mm", () => {
     expect(
       duplicateFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         offset_mm: { x: 10, y: 20 },
       }).success,
@@ -42,6 +55,7 @@ describe("duplicate_frame tool", () => {
   it("accepts zero offset", () => {
     expect(
       duplicateFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         offset_mm: { x: 0, y: 0 },
       }).success,
@@ -51,6 +65,7 @@ describe("duplicate_frame tool", () => {
   it("accepts negative offset (valid — offset can be left/up)", () => {
     expect(
       duplicateFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         offset_mm: { x: -5, y: -10 },
       }).success,
@@ -95,7 +110,7 @@ describe("duplicate_frame tool", () => {
       result: { source_frame_id: "f1", duplicate_frame_id: "f2", duplicate_type: "text" },
     });
 
-    await duplicateFrameTool.handler({ frame_id: "f1" });
+    await duplicateFrameTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("duplicate");
@@ -109,7 +124,7 @@ describe("duplicate_frame tool", () => {
       result: { source_frame_id: "f1", duplicate_frame_id: "f2", duplicate_type: "text" },
     });
 
-    await duplicateFrameTool.handler({ frame_id: "f1", offset_mm: { x: 10, y: 20 } });
+    await duplicateFrameTool.handler({ document_id: "doc-1", frame_id: "f1", offset_mm: { x: 10, y: 20 } });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("10");
@@ -122,7 +137,7 @@ describe("duplicate_frame tool", () => {
       result: { source_frame_id: "f1", duplicate_frame_id: "f2", duplicate_type: "text" },
     });
 
-    await duplicateFrameTool.handler({ frame_id: "f1" });
+    await duplicateFrameTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     // Default offset is 0, 0 — look for the array literal
@@ -137,7 +152,7 @@ describe("duplicate_frame tool", () => {
       result: { source_frame_id: "f1", duplicate_frame_id: "f99", duplicate_type: "text" },
     });
 
-    const env = await duplicateFrameTool.handler({ frame_id: "f1" });
+    const env = await duplicateFrameTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -152,7 +167,7 @@ describe("duplicate_frame tool", () => {
       result: { source_frame_id: "f1", duplicate_frame_id: "f99", duplicate_type: "rectangle" },
     });
 
-    const env = await duplicateFrameTool.handler({ frame_id: "f1" });
+    const env = await duplicateFrameTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -165,7 +180,7 @@ describe("duplicate_frame tool", () => {
       error: { kind: "not_found", message: "frame f1 not found" },
     });
 
-    const env = await duplicateFrameTool.handler({ frame_id: "f1" });
+    const env = await duplicateFrameTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("not_found");

@@ -19,7 +19,7 @@ const InputSchema = z
     space_before_pt: z.number().nonnegative().optional(),
     space_after_pt: z.number().nonnegative().optional(),
     on_collision: z.enum(["error", "update", "version"]).optional(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict()
   .refine(
@@ -48,9 +48,7 @@ interface Result {
 
 function buildScriptBody(input: Input): string {
   const docExpr =
-    input.document_id !== undefined
-      ? `findDocumentById(${lit(input.document_id)})`
-      : "app.activeDocument";
+    `findDocumentById(${lit(input.document_id)})`;
 
   const onCollision = input.on_collision ?? "error";
 

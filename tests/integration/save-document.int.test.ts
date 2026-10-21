@@ -18,12 +18,13 @@ integrationGate("save_document (integration)", () => {
       const indd = join(tmpDir, "test.indd");
 
       try {
-        await createDocumentTool.handler({
+        const create1 = await createDocumentTool.handler({
           preset: "A4",
           margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
         });
+        if (!create1.ok) return;
 
-        const env = await saveDocumentTool.handler({ path: indd });
+        const env = await saveDocumentTool.handler({ document_id: create1.result!.document_id, path: indd });
         expect(env.ok).toBe(true);
         if (!env.ok) return;
         // InDesign canonicalises macOS paths through firmlinks (/var → /private/var),
@@ -41,12 +42,13 @@ integrationGate("save_document (integration)", () => {
   it(
     "save without path on an unsaved document returns an error",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
 
-      const env = await saveDocumentTool.handler({});
+      const env = await saveDocumentTool.handler({ document_id: create2.result!.document_id });
       expect(env.ok).toBe(false);
     },
     INTEGRATION_TIMEOUT_MS,

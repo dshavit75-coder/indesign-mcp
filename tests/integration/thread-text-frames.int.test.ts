@@ -21,6 +21,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!create.ok) return;
 
       const frame1 = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 40 },
       });
@@ -28,6 +29,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!frame1.ok) return;
 
       const frame2 = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 60, width: 186, height: 40 },
       });
@@ -35,11 +37,13 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!frame2.ok) return;
 
       await setTextTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame1.result!.frame_id,
         text: "Hello world",
       });
 
       const env = await threadTextFramesTool.handler({
+        document_id: create.result!.document_id,
         source_frame_id: frame1.result!.frame_id,
         target_frame_id: frame2.result!.frame_id,
       });
@@ -70,6 +74,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!create.ok) return;
 
       const frame1 = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 40 },
       });
@@ -77,6 +82,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!frame1.ok) return;
 
       const frame2 = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 60, width: 186, height: 40 },
       });
@@ -84,6 +90,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!frame2.ok) return;
 
       const first = await threadTextFramesTool.handler({
+        document_id: create.result!.document_id,
         source_frame_id: frame1.result!.frame_id,
         target_frame_id: frame2.result!.frame_id,
       });
@@ -91,6 +98,7 @@ integrationGate("thread_text_frames (integration)", () => {
 
       // Call again — should succeed without error.
       const second = await threadTextFramesTool.handler({
+        document_id: create.result!.document_id,
         source_frame_id: frame1.result!.frame_id,
         target_frame_id: frame2.result!.frame_id,
       });
@@ -108,6 +116,7 @@ integrationGate("thread_text_frames (integration)", () => {
 
       const { createRectangleTool } = await import("../../src/tools/create-rectangle.js");
       const rect = await createRectangleTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 20, y: 20, width: 80, height: 60 },
       });
@@ -115,6 +124,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!rect.ok) return;
 
       const frame2 = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 20, y: 100, width: 80, height: 60 },
       });
@@ -122,6 +132,7 @@ integrationGate("thread_text_frames (integration)", () => {
       if (!frame2.ok) return;
 
       const env = await threadTextFramesTool.handler({
+        document_id: create.result!.document_id,
         source_frame_id: rect.result!.frame_id,
         target_frame_id: frame2.result!.frame_id,
       });

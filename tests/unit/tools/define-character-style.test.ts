@@ -20,16 +20,29 @@ describe("define_character_style tool", () => {
 
   // --- Schema validation ---
 
+  it("rejects missing document_id", () => {
+    expect(defineCharacterStyleTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(defineCharacterStyleTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(defineCharacterStyleTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects input with no attributes (name only, nothing else)", () => {
     // At least one of font_family/font_style/point_size/fill_hex/tracking required
     expect(
-      defineCharacterStyleTool.inputSchema.safeParse({ name: "Accent" }).success,
+      defineCharacterStyleTool.inputSchema.safeParse({ document_id: "doc-1", name: "Accent" }).success,
     ).toBe(false);
   });
 
   it("accepts name + font_family alone", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         font_family: "Helvetica Neue",
       }).success,
@@ -39,6 +52,7 @@ describe("define_character_style tool", () => {
   it("accepts name + point_size alone", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         point_size: 14,
       }).success,
@@ -48,6 +62,7 @@ describe("define_character_style tool", () => {
   it("accepts name + tracking alone", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         tracking: 50,
       }).success,
@@ -57,6 +72,7 @@ describe("define_character_style tool", () => {
   it("accepts name + fill_hex alone", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         fill_hex: "#FF6600",
       }).success,
@@ -66,6 +82,7 @@ describe("define_character_style tool", () => {
   it("rejects empty name", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "",
         font_family: "Helvetica",
       }).success,
@@ -75,6 +92,7 @@ describe("define_character_style tool", () => {
   it("rejects name longer than 60 chars", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "A".repeat(61),
         font_family: "Helvetica",
       }).success,
@@ -84,18 +102,21 @@ describe("define_character_style tool", () => {
   it("rejects invalid fill_hex format", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         fill_hex: "red",
       }).success,
     ).toBe(false);
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         fill_hex: "#XYZ000",
       }).success,
     ).toBe(false);
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         fill_hex: "#FF",
       }).success,
@@ -105,12 +126,14 @@ describe("define_character_style tool", () => {
   it("accepts valid fill_hex — both cases", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         fill_hex: "#FF6600",
       }).success,
     ).toBe(true);
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         fill_hex: "#ff6600",
       }).success,
@@ -120,12 +143,14 @@ describe("define_character_style tool", () => {
   it("rejects point_size <= 0", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         point_size: 0,
       }).success,
     ).toBe(false);
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         point_size: -1,
       }).success,
@@ -135,12 +160,14 @@ describe("define_character_style tool", () => {
   it("rejects tracking outside [-1000, 10000]", () => {
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         tracking: -1001,
       }).success,
     ).toBe(false);
     expect(
       defineCharacterStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Accent",
         tracking: 10001,
       }).success,
@@ -151,6 +178,7 @@ describe("define_character_style tool", () => {
     for (const c of ["error", "update", "version"] as const) {
       expect(
         defineCharacterStyleTool.inputSchema.safeParse({
+          document_id: "doc-1",
           name: "Accent",
           font_family: "Helvetica",
           on_collision: c,
@@ -171,6 +199,7 @@ describe("define_character_style tool", () => {
     });
 
     await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica Neue",
     });
@@ -191,6 +220,7 @@ describe("define_character_style tool", () => {
     });
 
     await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       fill_hex: "#FF6600",
     });
@@ -211,6 +241,7 @@ describe("define_character_style tool", () => {
     });
 
     await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       fill_hex: "#abcdef",
     });
@@ -229,6 +260,7 @@ describe("define_character_style tool", () => {
     });
 
     await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
       on_collision: "error",
@@ -248,6 +280,7 @@ describe("define_character_style tool", () => {
     });
 
     await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
       on_collision: "version",
@@ -270,6 +303,7 @@ describe("define_character_style tool", () => {
     });
 
     const env = await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
     });
@@ -291,6 +325,7 @@ describe("define_character_style tool", () => {
     });
 
     const env = await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       fill_hex: "#FF0000",
     });
@@ -307,6 +342,7 @@ describe("define_character_style tool", () => {
     });
 
     const env = await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
     });
@@ -322,6 +358,7 @@ describe("define_character_style tool", () => {
     });
 
     const env = await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
     });
@@ -338,6 +375,7 @@ describe("define_character_style tool", () => {
     });
 
     const env = await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
       on_collision: "version",
@@ -355,6 +393,7 @@ describe("define_character_style tool", () => {
     });
 
     const env = await defineCharacterStyleTool.handler({
+      document_id: "doc-1",
       name: "Accent",
       font_family: "Helvetica",
       on_collision: "update",

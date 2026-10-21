@@ -20,13 +20,14 @@ describe("insert_page_number_marker tool", () => {
 
   it("accepts minimal valid input — frame_id only", () => {
     expect(
-      insertPageNumberMarkerTool.inputSchema.safeParse({ frame_id: "f1" }).success,
+      insertPageNumberMarkerTool.inputSchema.safeParse({ document_id: "doc-1", frame_id: "f1" }).success,
     ).toBe(true);
   });
 
   it("accepts frame_id with position start", () => {
     expect(
       insertPageNumberMarkerTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         position: "start",
       }).success,
@@ -36,15 +37,29 @@ describe("insert_page_number_marker tool", () => {
   it("accepts frame_id with position end", () => {
     expect(
       insertPageNumberMarkerTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         position: "end",
       }).success,
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(insertPageNumberMarkerTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(insertPageNumberMarkerTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(insertPageNumberMarkerTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects invalid position value", () => {
     expect(
       insertPageNumberMarkerTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         position: "middle",
       }).success,
@@ -53,13 +68,13 @@ describe("insert_page_number_marker tool", () => {
 
   it("rejects missing frame_id", () => {
     expect(
-      insertPageNumberMarkerTool.inputSchema.safeParse({}).success,
+      insertPageNumberMarkerTool.inputSchema.safeParse({ document_id: "doc-1" }).success,
     ).toBe(false);
   });
 
   it("rejects empty frame_id", () => {
     expect(
-      insertPageNumberMarkerTool.inputSchema.safeParse({ frame_id: "" }).success,
+      insertPageNumberMarkerTool.inputSchema.safeParse({ document_id: "doc-1", frame_id: "" }).success,
     ).toBe(false);
   });
 
@@ -69,7 +84,7 @@ describe("insert_page_number_marker tool", () => {
       result: { frame_id: "f1", inserted_at: "end" },
     });
 
-    await insertPageNumberMarkerTool.handler({ frame_id: "f1" });
+    await insertPageNumberMarkerTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("findFrameById");
@@ -86,7 +101,7 @@ describe("insert_page_number_marker tool", () => {
       result: { frame_id: "f1", inserted_at: "start" },
     });
 
-    await insertPageNumberMarkerTool.handler({ frame_id: "f1", position: "start" });
+    await insertPageNumberMarkerTool.handler({ document_id: "doc-1", frame_id: "f1", position: "start" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("[0]");
@@ -98,7 +113,7 @@ describe("insert_page_number_marker tool", () => {
       result: { frame_id: "f1", inserted_at: "end" },
     });
 
-    await insertPageNumberMarkerTool.handler({ frame_id: "f1" });
+    await insertPageNumberMarkerTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("TextFrame");
@@ -111,7 +126,7 @@ describe("insert_page_number_marker tool", () => {
       result: { frame_id: "f1", inserted_at: "end" },
     });
 
-    const env = await insertPageNumberMarkerTool.handler({ frame_id: "f1" });
+    const env = await insertPageNumberMarkerTool.handler({ document_id: "doc-1", frame_id: "f1" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -130,7 +145,7 @@ describe("insert_page_number_marker tool", () => {
       },
     });
 
-    const env = await insertPageNumberMarkerTool.handler({ frame_id: "f2" });
+    const env = await insertPageNumberMarkerTool.handler({ document_id: "doc-1", frame_id: "f2" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("invalid_args");
@@ -142,7 +157,7 @@ describe("insert_page_number_marker tool", () => {
       error: { kind: "not_found", message: "frame f99 not found", entity: "frame" },
     });
 
-    const env = await insertPageNumberMarkerTool.handler({ frame_id: "f99" });
+    const env = await insertPageNumberMarkerTool.handler({ document_id: "doc-1", frame_id: "f99" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("not_found");

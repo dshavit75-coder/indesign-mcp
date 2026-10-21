@@ -137,8 +137,8 @@ describe("L0 — the wrapper does not change the tool contract", () => {
         "Returns io_error if the document has no saved path and no `path` was provided. " +
         "Never overwrites a file not owned by this session; returns name_collision instead.",
     );
-    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(true);
-    expect(saveDocumentTool.inputSchema.safeParse({ path: "/x/a.indd" }).success).toBe(true);
+    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(false);
+    expect(saveDocumentTool.inputSchema.safeParse({ path: "/x/a.indd" }).success).toBe(false);
     expect(saveDocumentTool.inputSchema.safeParse({ document_id: "42" }).success).toBe(true);
     expect(saveDocumentTool.inputSchema.safeParse({ overwrite: true }).success).toBe(false); // still .strict()
     expect(typeof saveDocumentTool.handler).toBe("function");
@@ -168,10 +168,10 @@ describe("L1 — calls run one after another, in arrival order", () => {
     const t = installTransport({ pre: () => ({ documentId: "42", fullName: path }), firstWrite: first.promise });
     const done: number[] = [];
 
-    const r1 = saveDocumentTool.handler({}).then((v) => { done.push(1); return v; });
+    const r1 = saveDocumentTool.handler({ document_id: "doc-1" }).then((v) => { done.push(1); return v; });
     await vi.waitFor(() => expect(t.writes()).toBe(1));
-    const r2 = saveDocumentTool.handler({}).then((v) => { done.push(2); return v; });
-    const r3 = saveDocumentTool.handler({}).then((v) => { done.push(3); return v; });
+    const r2 = saveDocumentTool.handler({ document_id: "doc-1" }).then((v) => { done.push(2); return v; });
+    const r3 = saveDocumentTool.handler({ document_id: "doc-1" }).then((v) => { done.push(3); return v; });
     await realSettle();
     expect(t.log).toEqual(["pre", "write"]); // calls 2 and 3 have not even queried
 
@@ -197,12 +197,12 @@ describe("L2 — a call that waits too long is not started and cannot start late
     const first = deferred<unknown>();
     const t = installTransport({ pre: () => ({ documentId: "42", fullName: path1 }), firstWrite: first.promise });
 
-    const r1 = saveDocumentTool.handler({});
+    const r1 = saveDocumentTool.handler({ document_id: "doc-1" });
     await flush();
     expect(t.log).toEqual(["pre", "write"]); // the first call is in flight and holds the lock
 
     let r2Result: Envelope<unknown> | undefined;
-    const r2 = saveDocumentTool.handler({ path: path2 }).then((v) => { r2Result = v; });
+    const r2 = saveDocumentTool.handler({ document_id: "doc-1", path: path2 }).then((v) => { r2Result = v; });
     await flush();
     await vi.advanceTimersByTimeAsync(SAVE_LOCK_WAIT_MS - 1);
     expect(r2Result).toBeUndefined(); // still waiting one millisecond before the limit
@@ -218,7 +218,7 @@ describe("L2 — a call that waits too long is not started and cannot start late
     expect(wg.registryGet(key2)).toBeUndefined(); // no registry entry
     expect(wg.registryGet(key1)?.state).toBe("pending"); // the first call's record is untouched
 
-    const r3 = saveDocumentTool.handler({ path: path2 }); // a NEW call for the same path, queued behind the first
+    const r3 = saveDocumentTool.handler({ document_id: "doc-1", path: path2 }); // a NEW call for the same path, queued behind the first
     await flush();
     first.resolve({ ok: true, result: { path: path1 } });
     const [e1, e3] = await Promise.all([r1, r3]);
@@ -240,7 +240,7 @@ describe("L3 — released after an exception before dispatch", () => {
     const t = installTransport({ pre: () => ({ documentId: "42", fullName: path }), firstWrite: Promise.resolve({ ok: true, result: { path } }) });
     hook.throwOnFirstCall = true; // the first sendWriteScript call throws before anything is sent
 
-    const [e1, e2] = await Promise.all([saveDocumentTool.handler({}), saveDocumentTool.handler({})]);
+    const [e1, e2] = await Promise.all([saveDocumentTool.handler({ document_id: "doc-1" }), saveDocumentTool.handler({ document_id: "doc-1" })]);
 
     expect(failure(e1).kind).toBe("write_not_authorized"); // normal envelope, not a rejection
     expect(failure(e1).message).toContain("injected failure");
@@ -262,9 +262,9 @@ describe("L4 — released after a transport rejection and after an ok:false enve
     const gate = deferred<void>();
     const t = installTransport({ pre: () => ({ documentId: "42", fullName: path }), firstWrite: gate.promise.then(firstWrite) });
 
-    const r1 = saveDocumentTool.handler({});
+    const r1 = saveDocumentTool.handler({ document_id: "doc-1" });
     await vi.waitFor(() => expect(t.writes()).toBe(1));
-    const r2 = saveDocumentTool.handler({});
+    const r2 = saveDocumentTool.handler({ document_id: "doc-1" });
     await realSettle();
     expect(t.log).toEqual(["pre", "write"]);
     gate.resolve();
@@ -295,15 +295,15 @@ describe("L5 — consecutive calls: success, failure, refusal", () => {
       return Promise.resolve(writes === 1 ? { ok: true, result: { path } } : failedEnvelope);
     }) as never);
 
-    const e1 = await saveDocumentTool.handler({});
+    const e1 = await saveDocumentTool.handler({ document_id: "doc-1" });
     expect(e1.ok).toBe(true);
     expect(wg.registryGet(key)?.state).toBe("owned");
 
-    const e2 = await saveDocumentTool.handler({});
+    const e2 = await saveDocumentTool.handler({ document_id: "doc-1" });
     expect(failure(e2).kind).toBe("io_error"); // the transport's own failure envelope
     expect(wg.registryGet(key)?.state).toBe("uncertain");
 
-    const e3 = await saveDocumentTool.handler({});
+    const e3 = await saveDocumentTool.handler({ document_id: "doc-1" });
     const refused = failure(e3);
     expect(refused.kind).toBe("name_collision");
     expect(refused.reason).toBe("uncertain");

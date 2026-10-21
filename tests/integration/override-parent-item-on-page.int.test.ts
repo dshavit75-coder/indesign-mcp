@@ -25,6 +25,7 @@ integrationGate("override_parent_item_on_page (integration)", () => {
 
       // 2. Create parent page
       const createParent = await createParentPageTool.handler({
+        document_id: createDoc.result!.document_id,
         base_name: "TestMaster",
       });
       expect(createParent.ok).toBe(true);
@@ -34,6 +35,7 @@ integrationGate("override_parent_item_on_page (integration)", () => {
 
       // 3. Add a text frame to the master page
       const createFrame = await createTextFrameTool.handler({
+        document_id: createDoc.result!.document_id,
         page_id: masterPageId,
         bounds_mm: { x: 10, y: 270, width: 190, height: 15 },
       });
@@ -43,6 +45,7 @@ integrationGate("override_parent_item_on_page (integration)", () => {
 
       // 4. Apply the parent to the doc page
       const applyEnv = await applyParentToPageTool.handler({
+        document_id: createDoc.result!.document_id,
         page_id: docPageId,
         parent_name: parentName,
       });
@@ -50,6 +53,7 @@ integrationGate("override_parent_item_on_page (integration)", () => {
 
       // 5. Override the master frame onto the doc page
       const env = await overrideParentItemOnPageTool.handler({
+        document_id: createDoc.result!.document_id,
         page_id: docPageId,
         parent_item_id: masterFrameId,
       });

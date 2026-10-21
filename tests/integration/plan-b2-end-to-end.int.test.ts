@@ -34,6 +34,7 @@ integrationGate("Plan B2 end-to-end (integration)", () => {
         const pageId = create.result!.page_ids[0];
 
         const headline = await createTextFrameTool.handler({
+          document_id: create.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 18, y: 18, width: 174, height: 30 },
           initial_text: "Brand Case Study: How We Shipped",
@@ -42,6 +43,7 @@ integrationGate("Plan B2 end-to-end (integration)", () => {
         if (!headline.ok) return;
 
         const body = await createTextFrameTool.handler({
+          document_id: create.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 18, y: 60, width: 174, height: 200 },
           initial_text:
@@ -51,6 +53,7 @@ integrationGate("Plan B2 end-to-end (integration)", () => {
         if (!body.ok) return;
 
         await defineParagraphStyleTool.handler({
+          document_id: create.result!.document_id,
           name: "Headline",
           size_pt: 28,
           leading_pt: 32,
@@ -58,6 +61,7 @@ integrationGate("Plan B2 end-to-end (integration)", () => {
         });
 
         await defineParagraphStyleTool.handler({
+          document_id: create.result!.document_id,
           name: "Body",
           size_pt: 11,
           leading_pt: 14,
@@ -65,15 +69,17 @@ integrationGate("Plan B2 end-to-end (integration)", () => {
         });
 
         await applyParagraphStyleTool.handler({
+          document_id: create.result!.document_id,
           frame_id: headline.result!.frame_id,
           style_name: "Headline",
         });
         await applyParagraphStyleTool.handler({
+          document_id: create.result!.document_id,
           frame_id: body.result!.frame_id,
           style_name: "Body",
         });
 
-        const state = await getPageStateTool.handler({ page_id: pageId });
+        const state = await getPageStateTool.handler({ document_id: create.result!.document_id, page_id: pageId });
         expect(state.ok).toBe(true);
         if (!state.ok) return;
         expect(state.result?.frames).toHaveLength(2);
@@ -83,9 +89,9 @@ integrationGate("Plan B2 end-to-end (integration)", () => {
         expect(styleNames).toContain("Headline");
         expect(styleNames).toContain("Body");
 
-        const save = await saveDocumentTool.handler({ path: indd });
+        const save = await saveDocumentTool.handler({ document_id: create.result!.document_id, path: indd });
         expect(save.ok).toBe(true);
-        const exported = await exportPdfTool.handler({ path: pdf });
+        const exported = await exportPdfTool.handler({ document_id: create.result!.document_id, path: pdf });
         expect(exported.ok).toBe(true);
         if (!exported.ok) return;
         expect(existsSync(pdf)).toBe(true);

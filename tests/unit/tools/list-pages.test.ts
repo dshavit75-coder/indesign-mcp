@@ -50,11 +50,19 @@ describe("list_pages tool", () => {
 
   // --- Schema validation ---
 
-  it("accepts empty input", () => {
-    expect(listPagesTool.inputSchema.safeParse({}).success).toBe(true);
+  it("rejects missing document_id", () => {
+    expect(listPagesTool.inputSchema.safeParse({}).success).toBe(false);
   });
 
-  it("accepts optional document_id", () => {
+  it("rejects empty document_id", () => {
+    expect(listPagesTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(listPagesTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
+  it("accepts valid document_id", () => {
     expect(
       listPagesTool.inputSchema.safeParse({ document_id: "doc1" }).success,
     ).toBe(true);
@@ -74,7 +82,7 @@ describe("list_pages tool", () => {
       result: { pages: [] },
     });
 
-    await listPagesTool.handler({});
+    await listPagesTool.handler({ document_id: "doc-xyz" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("doc.pages");
@@ -88,7 +96,7 @@ describe("list_pages tool", () => {
       result: { pages: [] },
     });
 
-    await listPagesTool.handler({});
+    await listPagesTool.handler({ document_id: "doc-xyz" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     // Must use === null comparison, not .isValid
@@ -114,7 +122,7 @@ describe("list_pages tool", () => {
       },
     });
 
-    const env = await listPagesTool.handler({});
+    const env = await listPagesTool.handler({ document_id: "doc-xyz" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -132,7 +140,7 @@ describe("list_pages tool", () => {
       result: { pages: [] },
     });
 
-    const env = await listPagesTool.handler({});
+    const env = await listPagesTool.handler({ document_id: "doc-xyz" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -149,7 +157,7 @@ describe("list_pages tool", () => {
       result: { pages: [] },
     });
 
-    await listPagesTool.handler({});
+    await listPagesTool.handler({ document_id: "doc-xyz" });
 
     expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledTimes(1);
   });
@@ -171,7 +179,7 @@ describe("list_pages tool", () => {
 
   it("LP-T3: forged token — real wrapExtendScript rejects, sendFn is NOT called", async () => {
     tamper.mode = "forged";
-    await expect(listPagesTool.handler({})).rejects.toThrow(
+    await expect(listPagesTool.handler({ document_id: "doc-xyz" })).rejects.toThrow(
       "read_not_authorized: token not issued by this guard",
     );
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
@@ -187,7 +195,7 @@ describe("list_pages tool", () => {
 
   it("LP-T5: token replay — second use of the consumed token is rejected, sendFn is NOT called", async () => {
     tamper.mode = "replay";
-    await expect(listPagesTool.handler({})).rejects.toThrow(
+    await expect(listPagesTool.handler({ document_id: "doc-xyz" })).rejects.toThrow(
       "read_not_authorized: token not issued by this guard",
     );
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();

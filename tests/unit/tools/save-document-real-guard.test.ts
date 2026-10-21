@@ -98,11 +98,23 @@ afterEach(() => {
 });
 
 describe("save_document with real write-guard — F1", () => {
+  it("rejects missing document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("SA-1: save-as to a free path succeeds through the real guard", async () => {
     const { path, key } = newPath();
     queueSave(path);
 
-    const env = await saveDocumentTool.handler({ path });
+    const env = await saveDocumentTool.handler({ document_id: "42", path });
 
     expect(env.ok).toBe(true);
     expect(mockRun).toHaveBeenCalledTimes(2); // pre-query + write
@@ -113,7 +125,7 @@ describe("save_document with real write-guard — F1", () => {
     const { path } = newPath();
     queueSave(path);
 
-    await saveDocumentTool.handler({ path });
+    await saveDocumentTool.handler({ document_id: "42", path });
 
     const writeCall = mockRun.mock.calls[1][0] as { scriptTemplate: string };
     expect(writeCall.scriptTemplate).toContain("doc.save(File(");
@@ -156,7 +168,7 @@ describe("save_document with real write-guard — F1b (validation failure path)"
     tamper.mode = "bad_body";
     mockRun.mockResolvedValueOnce({ ok: true, result: { documentId: "42", fullName: "" } } as never);
 
-    const env = await saveDocumentTool.handler({ path }); // must resolve, not reject
+    const env = await saveDocumentTool.handler({ document_id: "42", path }); // must resolve, not reject
 
     expect(env.ok).toBe(false);
     if (env.ok) return;
@@ -200,13 +212,13 @@ describe("save_document with real write-guard — F1b (validation failure path)"
     const { path, key } = newPath();
     tamper.mode = "bad_body";
     mockRun.mockResolvedValueOnce({ ok: true, result: { documentId: "42", fullName: "" } } as never);
-    const failed = await saveDocumentTool.handler({ path });
+    const failed = await saveDocumentTool.handler({ document_id: "42", path });
     expect(failed.ok).toBe(false);
     await vi.waitFor(() => expect(existsSync(path)).toBe(false));
 
     tamper.mode = "none";
     queueSave(path);
-    const retry = await saveDocumentTool.handler({ path });
+    const retry = await saveDocumentTool.handler({ document_id: "42", path });
 
     expect(retry.ok).toBe(true);
     expect(wg.registryGet(key)?.state).toBe("owned");
@@ -217,7 +229,7 @@ describe("save_document with real write-guard — F1b (validation failure path)"
     tamper.mode = "bad_body_dirty";
     mockRun.mockResolvedValueOnce({ ok: true, result: { documentId: "42", fullName: "" } } as never);
 
-    const env = await saveDocumentTool.handler({ path });
+    const env = await saveDocumentTool.handler({ document_id: "42", path });
 
     expect(env.ok).toBe(false);
     if (env.ok) return;

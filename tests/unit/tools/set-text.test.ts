@@ -21,10 +21,23 @@ describe("set_text tool", () => {
   it("accepts minimal valid input", () => {
     expect(
       setTextTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         text: "Hello",
       }).success,
     ).toBe(true);
+  });
+
+  it("rejects missing document_id", () => {
+    expect(setTextTool.inputSchema.safeParse({ frame_id: "f1", text: "Hello" }).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(setTextTool.inputSchema.safeParse({ document_id: "", frame_id: "f1", text: "Hello" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(setTextTool.inputSchema.safeParse({ document_id: "   ", frame_id: "f1", text: "Hello" }).success).toBe(false);
   });
 
   it("requires frame_id and text", () => {
@@ -38,7 +51,8 @@ describe("set_text tool", () => {
       result: { frame_id: "f1", character_count: 5 },
     });
 
-    await setTextTool.handler({ frame_id: "f1", text: "Hello" });
+    await setTextTool.handler({ document_id: "doc-1",
+      frame_id: "f1", text: "Hello" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("frame.contents");
@@ -53,6 +67,7 @@ describe("set_text tool", () => {
     });
 
     await setTextTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       text: 'She said "hi"',
     });
@@ -67,7 +82,8 @@ describe("set_text tool", () => {
       result: { frame_id: "f1", character_count: 5 },
     });
 
-    const env = await setTextTool.handler({ frame_id: "f1", text: "Hello" });
+    const env = await setTextTool.handler({ document_id: "doc-1",
+      frame_id: "f1", text: "Hello" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -82,6 +98,7 @@ describe("set_text tool", () => {
     });
 
     await setTextTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       text: "A\nB\r\nC",
     });
@@ -100,7 +117,8 @@ describe("set_text tool", () => {
       error: { kind: "not_found", message: "frame f99 not found", entity: "frame", id: "f99" },
     });
 
-    const env = await setTextTool.handler({ frame_id: "f99", text: "x" });
+    const env = await setTextTool.handler({ document_id: "doc-1",
+      frame_id: "f99", text: "x" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("not_found");

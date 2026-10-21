@@ -134,11 +134,23 @@ function makeUnlinkFail(path: string) {
 // ── K1, K2: nothing to report ───────────────────────────────────────────────
 
 describe("K1/K2 — the placeholder is gone: the original error, unchanged", () => {
+  it("rejects missing document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("K1: removed → the message is exactly the original one", async () => {
     const { path } = newPath();
     installTransport(path, () => {});
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toBe(PRE_SAVE_MESSAGE);
     expect(existsSync(path)).toBe(false);
@@ -148,7 +160,7 @@ describe("K1/K2 — the placeholder is gone: the original error, unchanged", () 
     const { path } = newPath();
     installTransport(path, (p) => unlinkSync(p));
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toBe(PRE_SAVE_MESSAGE);
     expect(existsSync(path)).toBe(false);
@@ -162,7 +174,7 @@ describe("K3 — still ours but not removable", () => {
     const { path, key } = newPath();
     const t = installTransport(path, (p) => makeUnlinkFail(p));
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("io_error"); // the original classification
     expect(error.entity).toBe("save_precheck");
@@ -174,7 +186,7 @@ describe("K3 — still ours but not removable", () => {
     expect(lstatSync(path).size).toBe(0);
     expect(wg.registryGet(key)?.state).toBe("uncertain");
 
-    const next = failure(await saveDocumentTool.handler({ path })); // the path really is blocked
+    const next = failure(await saveDocumentTool.handler({ document_id: "42", path })); // the path really is blocked
     expect(next.kind).toBe("name_collision");
     expect(next.reason).toBe("uncertain");
     expect(t.log).toEqual(["pre", "write", "pre"]);
@@ -188,7 +200,7 @@ describe("K4 — something else is there now: it is left untouched and the error
     const { path } = newPath();
     installTransport(path, (p) => writeFileSync(p, "REAL INDD CONTENT"));
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("io_error");
     expect(error.message.startsWith(`${PRE_SAVE_MESSAGE}. `)).toBe(true);
@@ -205,7 +217,7 @@ describe("K4 — something else is there now: it is left untouched and the error
       originalInode = lstatSync(p).ino;
     });
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toContain(NOTE_NOT_OURS);
     expect(existsSync(path)).toBe(true);
@@ -218,7 +230,7 @@ describe("K4 — something else is there now: it is left untouched and the error
     writeFileSync(other, "other file");
     installTransport(path, (p) => { unlinkSync(p); symlinkSync(other, p); });
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toContain(NOTE_NOT_OURS);
     expect(lstatSync(path).isSymbolicLink()).toBe(true);
@@ -234,7 +246,7 @@ describe("K5 — refused by the guard before dispatch", () => {
     mockRun.mockImplementation((() => Promise.resolve({ ok: true, result: { documentId: "42", fullName: "" } })) as never);
     hook.beforeGuard = (p) => writeFileSync(p, "someone else's data");
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("io_error"); // the guard refusal's own classification
     expect(error.message).toContain(NOTE_NOT_OURS);
@@ -250,7 +262,7 @@ describe("K6 — an exception before the transport is called", () => {
     hook.throwOnFirstCall = true;
     hook.beforeGuard = (p) => makeUnlinkFail(p);
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("write_not_authorized");
     expect(error.message.startsWith("injected failure before dispatch. ")).toBe(true);
@@ -264,7 +276,7 @@ describe("K6 — an exception before the transport is called", () => {
     hook.throwOnFirstCall = true;
     hook.beforeGuard = (p) => writeFileSync(p, "REAL CONTENT");
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("write_not_authorized");
     expect(error.message).toContain(NOTE_NOT_OURS);
@@ -276,7 +288,7 @@ describe("K6 — an exception before the transport is called", () => {
     mockRun.mockImplementation((() => Promise.resolve({ ok: true, result: { documentId: "42", fullName: "" } })) as never);
     hook.throwOnFirstCall = true;
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toBe("injected failure before dispatch");
     expect(existsSync(path)).toBe(false);

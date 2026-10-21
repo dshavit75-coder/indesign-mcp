@@ -20,6 +20,7 @@ integrationGate("create_text_frame (integration)", () => {
       const pageId = create.result!.page_ids[0];
 
       const env = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
         initial_text: "Hello, world",
@@ -37,12 +38,14 @@ integrationGate("create_text_frame (integration)", () => {
   it(
     "returns not_found for a missing page",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
 
       const env = await createTextFrameTool.handler({
+        document_id: create2.result!.document_id,
         page_id: "999999",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
       });

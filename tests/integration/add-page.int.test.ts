@@ -17,8 +17,9 @@ integrationGate("add_page (integration)", () => {
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
       expect(create.ok).toBe(true);
+      if (!create.ok) return;
 
-      const add = await addPageTool.handler({});
+      const add = await addPageTool.handler({ document_id: create.result!.document_id });
       expect(add.ok).toBe(true);
       if (!add.ok) return;
       expect(add.document_state_delta?.page_count).toBe(2);
@@ -38,7 +39,7 @@ integrationGate("add_page (integration)", () => {
       if (!create.ok) return;
       const firstPage = create.result!.page_ids[0];
 
-      const add = await addPageTool.handler({ at: { after_page_id: firstPage } });
+      const add = await addPageTool.handler({ document_id: create.result!.document_id, at: { after_page_id: firstPage } });
       expect(add.ok).toBe(true);
       if (!add.ok) return;
       expect(add.result?.position_index).toBe(1);

@@ -20,21 +20,34 @@ describe("thread_text_frames tool", () => {
 
   // --- Schema validation ---
 
+  it("rejects missing document_id", () => {
+    expect(threadTextFramesTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(threadTextFramesTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(threadTextFramesTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("requires source_frame_id", () => {
     expect(
-      threadTextFramesTool.inputSchema.safeParse({ target_frame_id: "f2" }).success,
+      threadTextFramesTool.inputSchema.safeParse({ document_id: "doc-1", target_frame_id: "f2" }).success,
     ).toBe(false);
   });
 
   it("requires target_frame_id", () => {
     expect(
-      threadTextFramesTool.inputSchema.safeParse({ source_frame_id: "f1" }).success,
+      threadTextFramesTool.inputSchema.safeParse({ document_id: "doc-1", source_frame_id: "f1" }).success,
     ).toBe(false);
   });
 
   it("accepts minimal valid input", () => {
     expect(
       threadTextFramesTool.inputSchema.safeParse({
+        document_id: "doc-1",
         source_frame_id: "f1",
         target_frame_id: "f2",
       }).success,
@@ -44,13 +57,14 @@ describe("thread_text_frames tool", () => {
   it("rejects source_frame_id === target_frame_id", () => {
     expect(
       threadTextFramesTool.inputSchema.safeParse({
+        document_id: "doc-1",
         source_frame_id: "f1",
         target_frame_id: "f1",
       }).success,
     ).toBe(false);
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       threadTextFramesTool.inputSchema.safeParse({
         source_frame_id: "f1",
@@ -63,6 +77,7 @@ describe("thread_text_frames tool", () => {
   it("rejects extra keys (strict schema)", () => {
     expect(
       threadTextFramesTool.inputSchema.safeParse({
+        document_id: "doc-1",
         source_frame_id: "f1",
         target_frame_id: "f2",
         unexpected: true,
@@ -83,6 +98,7 @@ describe("thread_text_frames tool", () => {
     });
 
     await threadTextFramesTool.handler({
+      document_id: "doc-1",
       source_frame_id: "f1",
       target_frame_id: "f2",
     });
@@ -104,6 +120,7 @@ describe("thread_text_frames tool", () => {
     });
 
     await threadTextFramesTool.handler({
+      document_id: "doc-1",
       source_frame_id: "f1",
       target_frame_id: "f2",
     });
@@ -126,6 +143,7 @@ describe("thread_text_frames tool", () => {
     });
 
     await threadTextFramesTool.handler({
+      document_id: "doc-1",
       source_frame_id: "f1",
       target_frame_id: "f2",
     });
@@ -151,6 +169,7 @@ describe("thread_text_frames tool", () => {
     });
 
     const env = await threadTextFramesTool.handler({
+      document_id: "doc-1",
       source_frame_id: "f1",
       target_frame_id: "f2",
     });
@@ -179,6 +198,7 @@ describe("thread_text_frames tool", () => {
     });
 
     const env = await threadTextFramesTool.handler({
+      document_id: "doc-1",
       source_frame_id: "f1",
       target_frame_id: "f2",
     });
@@ -200,6 +220,7 @@ describe("thread_text_frames tool", () => {
     });
 
     const env = await threadTextFramesTool.handler({
+      document_id: "doc-1",
       source_frame_id: "f1",
       target_frame_id: "f2",
     });

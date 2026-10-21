@@ -66,7 +66,7 @@ import {
 const InputSchema = z
   .object({
     path: z.string(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict();
 
@@ -168,11 +168,8 @@ const GUARD_EEXIST = /^final PDF path was taken during export:/;
 // Does NOT use write-guard.
 // ---------------------------------------------------------------------------
 
-function buildPreQueryScript(inputDocumentId: string | undefined): string {
-  const docExpr =
-    inputDocumentId !== undefined
-      ? `findDocumentById(${lit(inputDocumentId)})`
-      : "app.activeDocument";
+function buildPreQueryScript(inputDocumentId: string): string {
+  const docExpr = `findDocumentById(${lit(inputDocumentId)})`;
 
   return `
 ${prelude(findDocumentById)}
@@ -181,7 +178,7 @@ if (app.documents.length === 0) {
 }
 var doc = ${docExpr};
 if (doc === null) {
-  throw { name: "not_found", message: "document not found: " + ${inputDocumentId !== undefined ? lit(inputDocumentId) : '""'} };
+  throw { name: "not_found", message: "document not found: " + ${lit(inputDocumentId)} };
 }
 return { documentId: String(doc.id) };
 `;

@@ -107,15 +107,27 @@ const envelope = (kind: string, message: string, extra: Record<string, string> =
 async function failThenRetry(first: (path: string) => unknown) {
   const { path, key } = newPath();
   const t = installTransport(path, first);
-  const e1 = await saveDocumentTool.handler({ path });
+  const e1 = await saveDocumentTool.handler({ document_id: "42", path });
   const afterFirst = { placeholderExists: existsSync(path), record: wg.registryGet(key)?.state };
-  const e2 = await saveDocumentTool.handler({ path });
+  const e2 = await saveDocumentTool.handler({ document_id: "42", path });
   return { path, key, t, e1, e2, afterFirst };
 }
 
 // ── O1: timeout ─────────────────────────────────────────────────────────────
 
 describe("O1 — timeout: the outcome is unknown", () => {
+  it("rejects missing document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("keeps the empty placeholder, blocks the path, and tells the caller; the next save-as is refused and writes nothing", async () => {
     const { path, key, t, e1, e2, afterFirst } = await failThenRetry(() => envelope("timeout", "osascript dispatch exceeded timeout"));
 
@@ -206,7 +218,7 @@ describe("O5 — an exception before the transport is called", () => {
     const t = installTransport(path, () => ({ ok: true, result: { path } }));
     hook.throwOnFirstCall = true;
 
-    const e1 = await saveDocumentTool.handler({ path });
+    const e1 = await saveDocumentTool.handler({ document_id: "42", path });
 
     const first = failure(e1);
     expect(first.kind).toBe("write_not_authorized");
@@ -214,7 +226,7 @@ describe("O5 — an exception before the transport is called", () => {
     expect(existsSync(path)).toBe(false);
     expect(t.log).toEqual(["pre"]); // the transport was never asked to write
 
-    const e2 = await saveDocumentTool.handler({ path });
+    const e2 = await saveDocumentTool.handler({ document_id: "42", path });
     expect(e2.ok).toBe(true);
     expect(wg.registryGet(key)?.state).toBe("owned");
   });
@@ -242,11 +254,11 @@ describe("O7 — a late write (X3)", () => {
     const { path, key } = newPath();
     installTransport(path, () => envelope("timeout", "osascript dispatch exceeded timeout"));
 
-    failure(await saveDocumentTool.handler({ path })); // timeout: placeholder kept, path blocked
+    failure(await saveDocumentTool.handler({ document_id: "42", path })); // timeout: placeholder kept, path blocked
     expect(existsSync(path)).toBe(true);
     unlinkSync(path); // the user inspects and removes the placeholder
 
-    const retry = await saveDocumentTool.handler({ path }); // an ordinary save-as to the now-free path
+    const retry = await saveDocumentTool.handler({ document_id: "42", path }); // an ordinary save-as to the now-free path
     expect(retry.ok).toBe(true);
     expect(wg.registryGet(key)?.state).toBe("owned");
 
@@ -254,7 +266,7 @@ describe("O7 — a late write (X3)", () => {
     mockRun.mockImplementation(((o: { scriptTemplate: string }) =>
       Promise.resolve(isWrite(o) ? { ok: true, result: { path } } : { ok: true, result: { documentId: "42", fullName: path } })) as never);
 
-    const next = failure(await saveDocumentTool.handler({})); // the next in-place save
+    const next = failure(await saveDocumentTool.handler({ document_id: "42" })); // the next in-place save
     expect(next.kind).toBe("name_collision");
     expect(next.reason).toBe("fingerprint_mismatch"); // the overwritten content was NOT prevented, only detected here
     expect(readFileSync(path, "utf8")).toBe("LATE WRITE FROM THE TIMED-OUT SCRIPT");
@@ -274,7 +286,7 @@ describe("O8 — path B has no placeholder and is not affected", () => {
     });
     installTransport(path, () => envelope("timeout", "osascript dispatch exceeded timeout"), path);
 
-    const error = failure(await saveDocumentTool.handler({}));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42" }));
 
     expect(error.kind).toBe("timeout");
     expect(error.message).toBe("osascript dispatch exceeded timeout"); // untouched

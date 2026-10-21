@@ -36,6 +36,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         const pageId = docEnv.result!.page_ids[0];
 
         const swatchEnv = await createSwatchTool.handler({
+          document_id: docEnv.result!.document_id,
           name: "Brand Orange",
           hex: "#FF6600",
         });
@@ -46,6 +47,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         expect(swatchEnv.document_state_delta?.new_swatches).toEqual([{ name: "Brand Orange" }]);
 
         const paraStyleEnv = await defineParagraphStyleTool.handler({
+          document_id: docEnv.result!.document_id,
           name: "IranBody",
           size_pt: 11,
           leading_pt: 14,
@@ -58,6 +60,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         expect(paraStyleEnv.document_state_delta?.new_paragraph_styles).toEqual([{ name: "IranBody" }]);
 
         const charStyleEnv = await defineCharacterStyleTool.handler({
+          document_id: docEnv.result!.document_id,
           name: "IranEmphasis",
           fill_hex: "#FF6600",
           tracking: 20,
@@ -66,7 +69,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         if (!charStyleEnv.ok) return;
         expect(charStyleEnv.result?.character_style_name).toBe("IranEmphasis");
 
-        const listStylesEnv = await listParagraphStylesTool.handler({});
+        const listStylesEnv = await listParagraphStylesTool.handler({ document_id: docEnv.result!.document_id });
         expect(listStylesEnv.ok).toBe(true);
         if (!listStylesEnv.ok) return;
         const iranBody = listStylesEnv.result!.paragraph_styles.find(
@@ -80,6 +83,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         }
 
         const frameEnv = await createTextFrameTool.handler({
+          document_id: docEnv.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 20, y: 30, width: 160, height: 60 },
         });
@@ -88,12 +92,14 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         const frameId = frameEnv.result!.frame_id;
 
         const setTextEnv = await setTextTool.handler({
+          document_id: docEnv.result!.document_id,
           frame_id: frameId,
           text: "Total displaced: 1.5M people",
         });
         expect(setTextEnv.ok).toBe(true);
 
         const frEnv = await findReplaceTool.handler({
+          document_id: docEnv.result!.document_id,
           find: "people",
           replace: "individuals",
         });
@@ -103,6 +109,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         expect(frEnv.document_state_delta?.changed_frames).toEqual([]);
 
         const dupEnv = await duplicateFrameTool.handler({
+          document_id: docEnv.result!.document_id,
           frame_id: frameId,
           offset_mm: { x: 0, y: 70 },
         });
@@ -112,7 +119,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         expect(dupEnv.result?.duplicate_type).toBe("text");
         expect(dupEnv.document_state_delta?.new_frames?.[0].type).toBe("text");
 
-        const pagesEnv = await listPagesTool.handler({});
+        const pagesEnv = await listPagesTool.handler({ document_id: docEnv.result!.document_id });
         expect(pagesEnv.ok).toBe(true);
         if (!pagesEnv.ok) return;
         expect(pagesEnv.result!.pages.length).toBeGreaterThanOrEqual(1);
@@ -120,7 +127,7 @@ integrationGate("Plan B7 end-to-end (integration)", () => {
         expect(typeof pagesEnv.result!.pages[0].side).toBe("string");
         expect(typeof pagesEnv.result!.pages[0].applied_parent_name).toBe("string");
 
-        const exportEnv = await exportPdfTool.handler({ path: pdfPath });
+        const exportEnv = await exportPdfTool.handler({ document_id: docEnv.result!.document_id, path: pdfPath });
         expect(exportEnv.ok).toBe(true);
         expect(existsSync(pdfPath)).toBe(true);
         expect(statSync(pdfPath).size).toBeGreaterThan(0);

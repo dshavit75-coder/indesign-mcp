@@ -20,9 +20,22 @@ describe("set_frame_inset tool", () => {
 
   // --- Schema validation ---
 
+  it("rejects missing document_id", () => {
+    expect(setFrameInsetTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(setFrameInsetTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(setFrameInsetTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("requires frame_id", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
       }).success,
     ).toBe(false);
@@ -30,19 +43,21 @@ describe("set_frame_inset tool", () => {
 
   it("requires inset_mm", () => {
     expect(
-      setFrameInsetTool.inputSchema.safeParse({ frame_id: "f1" }).success,
+      setFrameInsetTool.inputSchema.safeParse({ document_id: "doc-1", frame_id: "f1" }).success,
     ).toBe(false);
   });
 
   it("requires all four inset sides", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: 5, left: 5, bottom: 5 },
       }).success,
     ).toBe(false);
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: 5, left: 5, right: 5 },
       }).success,
@@ -52,6 +67,7 @@ describe("set_frame_inset tool", () => {
   it("accepts zero insets", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: 0, left: 0, bottom: 0, right: 0 },
       }).success,
@@ -61,6 +77,7 @@ describe("set_frame_inset tool", () => {
   it("accepts asymmetric insets", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: 3, left: 6, bottom: 3, right: 6 },
       }).success,
@@ -70,19 +87,21 @@ describe("set_frame_inset tool", () => {
   it("rejects negative insets", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: -1, left: 5, bottom: 5, right: 5 },
       }).success,
     ).toBe(false);
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: 5, left: 5, bottom: 5, right: -0.1 },
       }).success,
     ).toBe(false);
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
         frame_id: "f1",
@@ -95,6 +114,7 @@ describe("set_frame_inset tool", () => {
   it("rejects extra keys (strict schema)", () => {
     expect(
       setFrameInsetTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
         extra_key: true,
@@ -114,6 +134,7 @@ describe("set_frame_inset tool", () => {
     });
 
     await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
     });
@@ -135,6 +156,7 @@ describe("set_frame_inset tool", () => {
     });
 
     await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 3, left: 6, bottom: 3, right: 6 },
     });
@@ -154,6 +176,7 @@ describe("set_frame_inset tool", () => {
     });
 
     await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
     });
@@ -173,6 +196,7 @@ describe("set_frame_inset tool", () => {
     });
 
     await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
     });
@@ -195,6 +219,7 @@ describe("set_frame_inset tool", () => {
     });
 
     const env = await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
     });
@@ -227,6 +252,7 @@ describe("set_frame_inset tool", () => {
     });
 
     const env = await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
     });
@@ -248,6 +274,7 @@ describe("set_frame_inset tool", () => {
     });
 
     const env = await setFrameInsetTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
     });

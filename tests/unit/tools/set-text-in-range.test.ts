@@ -23,6 +23,7 @@ describe("set_text_in_range tool", () => {
   it("accepts valid input with non-empty text", () => {
     expect(
       setTextInRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         start_index: 0,
         end_index: 5,
@@ -34,6 +35,7 @@ describe("set_text_in_range tool", () => {
   it("accepts empty text (deletion)", () => {
     expect(
       setTextInRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         start_index: 0,
         end_index: 5,
@@ -42,9 +44,22 @@ describe("set_text_in_range tool", () => {
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(setTextInRangeTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(setTextInRangeTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(setTextInRangeTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects empty frame_id", () => {
     expect(
       setTextInRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "",
         start_index: 0,
         end_index: 5,
@@ -56,6 +71,7 @@ describe("set_text_in_range tool", () => {
   it("rejects start_index < 0", () => {
     expect(
       setTextInRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         start_index: -1,
         end_index: 5,
@@ -67,6 +83,7 @@ describe("set_text_in_range tool", () => {
   it("rejects end_index <= start_index", () => {
     expect(
       setTextInRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         start_index: 5,
         end_index: 5,
@@ -75,6 +92,7 @@ describe("set_text_in_range tool", () => {
     ).toBe(false);
     expect(
       setTextInRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         start_index: 6,
         end_index: 3,
@@ -83,7 +101,7 @@ describe("set_text_in_range tool", () => {
     ).toBe(false);
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       setTextInRangeTool.inputSchema.safeParse({
         frame_id: "f1",
@@ -109,6 +127,7 @@ describe("set_text_in_range tool", () => {
     });
 
     await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,
@@ -134,6 +153,7 @@ describe("set_text_in_range tool", () => {
     });
 
     await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,
@@ -159,6 +179,7 @@ describe("set_text_in_range tool", () => {
     });
 
     await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,
@@ -182,6 +203,7 @@ describe("set_text_in_range tool", () => {
     });
 
     await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,
@@ -205,6 +227,7 @@ describe("set_text_in_range tool", () => {
     });
 
     await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,
@@ -229,6 +252,7 @@ describe("set_text_in_range tool", () => {
     });
 
     const env = await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 7,
       end_index: 13,
@@ -250,6 +274,7 @@ describe("set_text_in_range tool", () => {
     });
 
     const env = await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,
@@ -267,6 +292,7 @@ describe("set_text_in_range tool", () => {
     });
 
     const env = await setTextInRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       start_index: 0,
       end_index: 5,

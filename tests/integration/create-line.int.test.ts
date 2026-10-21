@@ -18,6 +18,7 @@ integrationGate("create_line (integration)", () => {
       if (!create.ok) return;
 
       const env = await createLineTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         start_mm: { x: 12, y: 12 },
         end_mm: { x: 198, y: 12 },

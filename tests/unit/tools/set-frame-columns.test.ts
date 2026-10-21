@@ -20,21 +20,34 @@ describe("set_frame_columns tool", () => {
 
   // --- Schema validation ---
 
+  it("rejects missing document_id", () => {
+    expect(setFrameColumnsTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(setFrameColumnsTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(setFrameColumnsTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("requires frame_id", () => {
     expect(
-      setFrameColumnsTool.inputSchema.safeParse({ count: 2 }).success,
+      setFrameColumnsTool.inputSchema.safeParse({ document_id: "doc-1", count: 2 }).success,
     ).toBe(false);
   });
 
   it("requires count", () => {
     expect(
-      setFrameColumnsTool.inputSchema.safeParse({ frame_id: "f1" }).success,
+      setFrameColumnsTool.inputSchema.safeParse({ document_id: "doc-1", frame_id: "f1" }).success,
     ).toBe(false);
   });
 
   it("accepts count = 1 (single column)", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 1,
       }).success,
@@ -44,6 +57,7 @@ describe("set_frame_columns tool", () => {
   it("accepts count = 3 with explicit gutter_mm", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 3,
         gutter_mm: 5,
@@ -54,6 +68,7 @@ describe("set_frame_columns tool", () => {
   it("rejects count = 0", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 0,
       }).success,
@@ -63,6 +78,7 @@ describe("set_frame_columns tool", () => {
   it("rejects non-integer count", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 1.5,
       }).success,
@@ -72,6 +88,7 @@ describe("set_frame_columns tool", () => {
   it("rejects negative gutter_mm", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 2,
         gutter_mm: -1,
@@ -82,6 +99,7 @@ describe("set_frame_columns tool", () => {
   it("accepts gutter_mm = 0", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 2,
         gutter_mm: 0,
@@ -89,7 +107,7 @@ describe("set_frame_columns tool", () => {
     ).toBe(true);
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
         frame_id: "f1",
@@ -102,6 +120,7 @@ describe("set_frame_columns tool", () => {
   it("rejects extra keys (strict schema)", () => {
     expect(
       setFrameColumnsTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         count: 2,
         unexpected: true,
@@ -117,7 +136,7 @@ describe("set_frame_columns tool", () => {
       result: { frame_id: "f1", count: 2, gutter_mm: 4 },
     });
 
-    await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("textColumnCount");
@@ -133,7 +152,7 @@ describe("set_frame_columns tool", () => {
       result: { frame_id: "f1", count: 2, gutter_mm: 4 },
     });
 
-    await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("4");
@@ -145,7 +164,7 @@ describe("set_frame_columns tool", () => {
       result: { frame_id: "f1", count: 3, gutter_mm: 6.5 },
     });
 
-    await setFrameColumnsTool.handler({ frame_id: "f1", count: 3, gutter_mm: 6.5 });
+    await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 3, gutter_mm: 6.5 });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("6.5");
@@ -157,7 +176,7 @@ describe("set_frame_columns tool", () => {
       result: { frame_id: "f1", count: 2, gutter_mm: 4 },
     });
 
-    await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("TextFrame");
@@ -170,7 +189,7 @@ describe("set_frame_columns tool", () => {
       result: { frame_id: "f1", count: 2, gutter_mm: 4 },
     });
 
-    await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("try");
@@ -186,7 +205,7 @@ describe("set_frame_columns tool", () => {
       result: { frame_id: "f1", count: 2, gutter_mm: 4 },
     });
 
-    const env = await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    const env = await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -207,7 +226,7 @@ describe("set_frame_columns tool", () => {
       },
     });
 
-    const env = await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    const env = await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     expectFailure(env);
     expect(env.error.kind).toBe("not_found");
@@ -225,7 +244,7 @@ describe("set_frame_columns tool", () => {
       },
     });
 
-    const env = await setFrameColumnsTool.handler({ frame_id: "f1", count: 2 });
+    const env = await setFrameColumnsTool.handler({ document_id: "doc-1", frame_id: "f1", count: 2 });
 
     expectFailure(env);
     expect(env.error.kind).toBe("invalid_args");

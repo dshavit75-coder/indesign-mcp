@@ -119,7 +119,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
       result: { ok: true, result: { path: FINAL_PATH } },
     } as never);
 
-    const result = await saveDocumentTool.handler({ path: FINAL_PATH });
+    const result = await saveDocumentTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -179,7 +179,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
       reason: "not_owned",
     } as never);
 
-    const result = await saveDocumentTool.handler({ path: FINAL_PATH });
+    const result = await saveDocumentTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -208,7 +208,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
       message: "path-A placeholder inode changed before send (TOCTOU detected)",
     } as never);
 
-    const result = await saveDocumentTool.handler({ path: FINAL_PATH });
+    const result = await saveDocumentTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -231,7 +231,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
       reason: "uncertain",
     } as never);
 
-    const result = await saveDocumentTool.handler({ path: FINAL_PATH });
+    const result = await saveDocumentTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -258,7 +258,7 @@ describe("save_document — write-guard integration (Stage 4)", () => {
       message: "InDesign timed out",
     } as never);
 
-    const result = await saveDocumentTool.handler({ path: FINAL_PATH });
+    const result = await saveDocumentTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -268,40 +268,17 @@ describe("save_document — write-guard integration (Stage 4)", () => {
   });
 
   // I9b: no document_id — pre-query uses app.activeDocument
-  it("I9b: no document_id provided → pre-query runs (uses activeDocument)", async () => {
-    // Pre-query with no document_id returns documentId from activeDocument
-    mockPreQueryOk("99", FINAL_PATH);
-    mockDecideWrite.mockResolvedValueOnce({
-      ok: true,
-      decision: makeDecisionB(),
-    } as never);
-    mockSendWriteScript.mockResolvedValueOnce({
-      ok: true,
-      result: { ok: true, result: { path: FINAL_PATH } },
-    } as never);
-
-    const result = await saveDocumentTool.handler({});
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.result?.path).toBe(FINAL_PATH);
-    }
-    // runScriptWithResultFile must have been called exactly once (the pre-query)
-    expect(mockRunScript).toHaveBeenCalledTimes(1);
-    // The pre-query script must use app.activeDocument (not findDocumentById(id))
-    // Note: prelude(findDocumentById) always injects the function DEFINITION, but
-    // when no document_id is given, the invocation expression is app.activeDocument.
-    const scriptArg = mockRunScript.mock.calls[0][0].scriptTemplate as string;
-    expect(scriptArg).toContain("app.activeDocument");
-    // The call-site expression must NOT be findDocumentById(...) — i.e. no call with an id arg
-    expect(scriptArg).not.toMatch(/var doc = findDocumentById\(/);
+  it("I9b — schema rejects missing document_id before dispatch", async () => {
+    const result = saveDocumentTool.inputSchema.safeParse({});
+    expect(result.success).toBe(false);
+    expect(mockDecideWrite).not.toHaveBeenCalled();
   });
 
   // I10: unsaved document — fullName is empty → io_error before decideWrite
   it("I10: unsaved document (fullName empty) → io_error, decideWrite never called", async () => {
     mockPreQueryOk(DOC_ID, ""); // fullName = ""
 
-    const result = await saveDocumentTool.handler({});
+    const result = await saveDocumentTool.handler({ document_id: DOC_ID });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {

@@ -27,17 +27,18 @@ integrationGate("Plan B1 end-to-end (integration)", () => {
           margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
         });
         expect(create.ok).toBe(true);
+        if (!create.ok) return;
 
         for (let i = 0; i < 3; i++) {
-          const add = await addPageTool.handler({});
+          const add = await addPageTool.handler({ document_id: create.result!.document_id });
           expect(add.ok).toBe(true);
         }
 
-        const save = await saveDocumentTool.handler({ path: indd });
+        const save = await saveDocumentTool.handler({ document_id: create.result!.document_id, path: indd });
         expect(save.ok).toBe(true);
         expect(existsSync(indd)).toBe(true);
 
-        const exported = await exportPdfTool.handler({ path: pdf });
+        const exported = await exportPdfTool.handler({ document_id: create.result!.document_id, path: pdf });
         expect(exported.ok).toBe(true);
         if (!exported.ok) return;
         expect(exported.result?.page_count).toBe(4);

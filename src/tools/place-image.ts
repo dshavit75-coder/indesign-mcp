@@ -19,7 +19,7 @@ const InputSchema = z
         "center_content",
       ])
       .optional(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict();
 
@@ -48,9 +48,7 @@ const FIT_ENUM_MAP = {
 
 function buildScriptBody(input: Input, absolutePath: string): string {
   const docExpr =
-    input.document_id !== undefined
-      ? `findDocumentById(${lit(input.document_id)})`
-      : "app.activeDocument";
+    `findDocumentById(${lit(input.document_id)})`;
 
   const fitEnum = FIT_ENUM_MAP[input.fit ?? "fill_proportionally"];
 

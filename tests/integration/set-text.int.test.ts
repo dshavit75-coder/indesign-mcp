@@ -20,6 +20,7 @@ integrationGate("set_text (integration)", () => {
       const pageId = create.result!.page_ids[0];
 
       const frame = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: pageId,
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
         initial_text: "Old",
@@ -27,6 +28,7 @@ integrationGate("set_text (integration)", () => {
       if (!frame.ok) return;
 
       const env = await setTextTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "New body content here",
       });

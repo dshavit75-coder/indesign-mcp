@@ -38,6 +38,7 @@ integrationGate("Plan B3 end-to-end (integration)", () => {
         const pageId = create.result!.page_ids[0];
 
         const topRule = await createLineTool.handler({
+          document_id: create.result!.document_id,
           page_id: pageId,
           start_mm: { x: 18, y: 12 },
           end_mm: { x: 192, y: 12 },
@@ -47,6 +48,7 @@ integrationGate("Plan B3 end-to-end (integration)", () => {
         expect(topRule.ok).toBe(true);
 
         const imageFrame = await createImageFrameTool.handler({
+          document_id: create.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 18, y: 30, width: 100, height: 60 },
         });
@@ -54,12 +56,14 @@ integrationGate("Plan B3 end-to-end (integration)", () => {
         if (!imageFrame.ok) return;
 
         const place = await placeImageTool.handler({
+          document_id: create.result!.document_id,
           frame_id: imageFrame.result!.frame_id,
           image_path: imagePath,
         });
         expect(place.ok).toBe(true);
 
         const pill = await createRectangleTool.handler({
+          document_id: create.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 18, y: 100, width: 60, height: 12 },
           fill_hex: "#FF6600",
@@ -67,7 +71,7 @@ integrationGate("Plan B3 end-to-end (integration)", () => {
         });
         expect(pill.ok).toBe(true);
 
-        const exported = await exportPdfTool.handler({ path: pdfPath });
+        const exported = await exportPdfTool.handler({ document_id: create.result!.document_id, path: pdfPath });
         expect(exported.ok).toBe(true);
         if (!exported.ok) return;
         expect(existsSync(pdfPath)).toBe(true);

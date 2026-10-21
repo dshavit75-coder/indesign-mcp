@@ -21,6 +21,7 @@ integrationGate("set_text_in_range (integration)", () => {
       if (!doc.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: doc.result!.document_id,
         page_id: doc.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
@@ -29,12 +30,14 @@ integrationGate("set_text_in_range (integration)", () => {
 
       // "Hello world" — 11 chars
       await setTextTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "Hello world",
       });
 
       // Replace "world" (indices 6..11) with "InDesign"
       const env = await setTextInRangeTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         start_index: 6,
         end_index: 11,
@@ -62,6 +65,7 @@ integrationGate("set_text_in_range (integration)", () => {
       if (!doc.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: doc.result!.document_id,
         page_id: doc.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
@@ -70,12 +74,14 @@ integrationGate("set_text_in_range (integration)", () => {
 
       // "Hello world" — 11 chars
       await setTextTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "Hello world",
       });
 
       // Delete " world" (indices 5..11) — empty replacement
       const env = await setTextInRangeTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         start_index: 5,
         end_index: 11,
@@ -102,6 +108,7 @@ integrationGate("set_text_in_range (integration)", () => {
       if (!doc.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: doc.result!.document_id,
         page_id: doc.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
@@ -109,11 +116,13 @@ integrationGate("set_text_in_range (integration)", () => {
       if (!frame.ok) return;
 
       await setTextTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "Hi",
       });
 
       const env = await setTextInRangeTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         start_index: 0,
         end_index: 999,

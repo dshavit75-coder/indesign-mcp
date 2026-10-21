@@ -15,7 +15,7 @@ const InputSchema = z
         y: z.number(),
       })
       .optional(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict();
 
@@ -37,9 +37,7 @@ interface Result {
 
 function buildScriptBody(input: Input): string {
   const docExpr =
-    input.document_id !== undefined
-      ? `findDocumentById(${lit(input.document_id)})`
-      : "app.activeDocument";
+    `findDocumentById(${lit(input.document_id)})`;
 
   const offsetX = input.offset_mm?.x ?? 0;
   const offsetY = input.offset_mm?.y ?? 0;

@@ -20,39 +20,52 @@ describe("find_replace tool", () => {
 
   // --- Schema validation ---
 
-  it("requires find and replace", () => {
-    expect(findReplaceTool.inputSchema.safeParse({ find: "a" }).success).toBe(false);
-    expect(findReplaceTool.inputSchema.safeParse({ replace: "b" }).success).toBe(false);
+  it("rejects missing document_id", () => {
     expect(findReplaceTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(findReplaceTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(findReplaceTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
+  it("requires find and replace", () => {
+    expect(findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a" }).success).toBe(false);
+    expect(findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", replace: "b" }).success).toBe(false);
+    expect(findReplaceTool.inputSchema.safeParse({ document_id: "doc-1" }).success).toBe(false);
   });
 
   it("accepts minimal input with find and replace", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "people", replace: "individuals" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "people", replace: "individuals" }).success,
     ).toBe(true);
   });
 
   it("accepts mode: literal and grep", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", mode: "literal" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", mode: "literal" }).success,
     ).toBe(true);
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", mode: "grep" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", mode: "grep" }).success,
     ).toBe(true);
   });
 
   it("rejects invalid mode", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", mode: "regex" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", mode: "regex" }).success,
     ).toBe(false);
   });
 
   it("accepts scope: document and frame", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", scope: "document" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", scope: "document" }).success,
     ).toBe(true);
     expect(
       findReplaceTool.inputSchema.safeParse({
+        document_id: "doc-1",
         find: "a",
         replace: "b",
         scope: "frame",
@@ -63,13 +76,13 @@ describe("find_replace tool", () => {
 
   it("rejects scope 'frame' without frame_id (refine)", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", scope: "frame" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", scope: "frame" }).success,
     ).toBe(false);
   });
 
   it("accepts scope 'document' without frame_id", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", scope: "document" }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", scope: "document" }).success,
     ).toBe(true);
   });
 
@@ -77,6 +90,7 @@ describe("find_replace tool", () => {
     // frame_id is optional — not required to be absent for document scope
     expect(
       findReplaceTool.inputSchema.safeParse({
+        document_id: "doc-1",
         find: "a",
         replace: "b",
         scope: "document",
@@ -85,7 +99,7 @@ describe("find_replace tool", () => {
     ).toBe(true);
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       findReplaceTool.inputSchema.safeParse({
         find: "a",
@@ -97,7 +111,7 @@ describe("find_replace tool", () => {
 
   it("rejects extra keys (strict schema)", () => {
     expect(
-      findReplaceTool.inputSchema.safeParse({ find: "a", replace: "b", extra: true }).success,
+      findReplaceTool.inputSchema.safeParse({ document_id: "doc-1", find: "a", replace: "b", extra: true }).success,
     ).toBe(false);
   });
 
@@ -109,7 +123,7 @@ describe("find_replace tool", () => {
       result: { matches_changed: 1, scope: "document", mode: "literal" },
     });
 
-    await findReplaceTool.handler({ find: "people", replace: "individuals" });
+    await findReplaceTool.handler({ document_id: "doc-1", find: "people", replace: "individuals" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("findTextPreferences");
@@ -125,7 +139,7 @@ describe("find_replace tool", () => {
       result: { matches_changed: 2, scope: "document", mode: "grep" },
     });
 
-    await findReplaceTool.handler({ find: "\\bpeople\\b", replace: "individuals", mode: "grep" });
+    await findReplaceTool.handler({ document_id: "doc-1", find: "\\bpeople\\b", replace: "individuals", mode: "grep" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("findGrepPreferences");
@@ -140,7 +154,7 @@ describe("find_replace tool", () => {
       result: { matches_changed: 0, scope: "document", mode: "literal" },
     });
 
-    await findReplaceTool.handler({ find: "a", replace: "b" });
+    await findReplaceTool.handler({ document_id: "doc-1", find: "a", replace: "b" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("NothingEnum");
@@ -155,6 +169,7 @@ describe("find_replace tool", () => {
     });
 
     await findReplaceTool.handler({
+      document_id: "doc-1",
       find: "a",
       replace: "b",
       scope: "frame",
@@ -173,6 +188,7 @@ describe("find_replace tool", () => {
     });
 
     await findReplaceTool.handler({
+      document_id: "doc-1",
       find: "a",
       replace: "b",
       scope: "frame",
@@ -192,7 +208,7 @@ describe("find_replace tool", () => {
       result: { matches_changed: 3, scope: "document", mode: "literal" },
     });
 
-    const env = await findReplaceTool.handler({ find: "a", replace: "b" });
+    const env = await findReplaceTool.handler({ document_id: "doc-1", find: "a", replace: "b" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -207,7 +223,7 @@ describe("find_replace tool", () => {
       result: { matches_changed: 1, scope: "document", mode: "literal" },
     });
 
-    const env = await findReplaceTool.handler({ find: "a", replace: "b" });
+    const env = await findReplaceTool.handler({ document_id: "doc-1", find: "a", replace: "b" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;

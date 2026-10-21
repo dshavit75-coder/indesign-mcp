@@ -22,6 +22,7 @@ integrationGate("apply_parent_to_page (integration)", () => {
       const pageId = createDoc.result!.page_ids[0];
 
       const createParent = await createParentPageTool.handler({
+        document_id: createDoc.result!.document_id,
         base_name: "Footer",
       });
       expect(createParent.ok).toBe(true);
@@ -30,6 +31,7 @@ integrationGate("apply_parent_to_page (integration)", () => {
       const parentName = createParent.result!.parent_name;
 
       const env = await applyParentToPageTool.handler({
+        document_id: createDoc.result!.document_id,
         page_id: pageId,
         parent_name: parentName,
       });
@@ -48,13 +50,15 @@ integrationGate("apply_parent_to_page (integration)", () => {
   it(
     "returns not_found when parent spread name does not exist",
     async () => {
-      await createDocumentTool.handler({
+      const createDoc2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!createDoc2.ok) return;
 
       // A fresh doc's only master is "[None]" and "A-Master"; "Z-Missing" should not exist.
       const env = await applyParentToPageTool.handler({
+        document_id: createDoc2.result!.document_id,
         page_id: "any-id",
         parent_name: "Z-Missing",
       });

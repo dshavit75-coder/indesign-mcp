@@ -206,9 +206,21 @@ describe("save script — path A (F2-1, F2-2, F2-5)", () => {
   async function pathAScript() {
     const { path } = newPath();
     queueSaveAs(path);
-    expect((await saveDocumentTool.handler({ path })).ok).toBe(true);
+    expect((await saveDocumentTool.handler({ document_id: "42", path })).ok).toBe(true);
     return { path, tpl: writeScriptOf() };
   }
+
+  it("rejects missing document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
 
   it("S1: the checks appear before the save call, in order", async () => {
     const { tpl } = await pathAScript();
@@ -263,7 +275,7 @@ describe("save script — path B (F2-1, F2-2, F2-5)", () => {
     const { path, key } = newPath();
     seedOwned(path, key);
     queueInPlace(path);
-    expect((await saveDocumentTool.handler({})).ok).toBe(true);
+    expect((await saveDocumentTool.handler({ document_id: "42" })).ok).toBe(true);
     return { path, tpl: writeScriptOf() };
   }
 
@@ -330,7 +342,7 @@ describe("TOCTOU on path B — file changed between decision and send (F2-4, F2-
     preQueryOnly(path);
     hook.beforeSend = (p) => mutators[name](p, other);
 
-    const error = failure(await saveDocumentTool.handler({}));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42" }));
 
     expect(error.reason).toBe("fingerprint_mismatch");
     expect(mockRun).toHaveBeenCalledTimes(1); // pre-query only: nothing sent to InDesign
@@ -354,7 +366,7 @@ describe("TOCTOU on path A — placeholder changed between reservation and send 
     preQueryOnly("");
     hook.beforeSend = (p) => { unlinkSync(p); writeFileSync(p, ""); };
 
-    failure(await saveDocumentTool.handler({ path }));
+    failure(await saveDocumentTool.handler({ document_id: "42", path }));
     await settle();
 
     expect(mockRun).toHaveBeenCalledTimes(1);
@@ -367,7 +379,7 @@ describe("TOCTOU on path A — placeholder changed between reservation and send 
     preQueryOnly("");
     hook.beforeSend = (p) => writeFileSync(p, "someone else's data");
 
-    failure(await saveDocumentTool.handler({ path }));
+    failure(await saveDocumentTool.handler({ document_id: "42", path }));
     await settle();
 
     expect(mockRun).toHaveBeenCalledTimes(1);
@@ -382,7 +394,7 @@ describe("TOCTOU on path A — placeholder changed between reservation and send 
     preQueryOnly("");
     hook.beforeSend = (p) => { unlinkSync(p); symlinkSync(other, p); };
 
-    failure(await saveDocumentTool.handler({ path }));
+    failure(await saveDocumentTool.handler({ document_id: "42", path }));
     await settle();
 
     expect(mockRun).toHaveBeenCalledTimes(1);
@@ -401,7 +413,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     preQueryOnly(path);
     hook.throwBeforeSend = true;
 
-    const error = failure(await saveDocumentTool.handler({})); // must resolve, not reject
+    const error = failure(await saveDocumentTool.handler({ document_id: "42" })); // must resolve, not reject
 
     expect(error.kind).toBe("write_not_authorized");
     expect(error.message).toContain("injected failure");
@@ -414,11 +426,11 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     seedOwned(path, key);
     preQueryOnly(path);
     hook.throwBeforeSend = true;
-    failure(await saveDocumentTool.handler({}));
+    failure(await saveDocumentTool.handler({ document_id: "42" }));
 
     hook.throwBeforeSend = false;
     queueInPlace(path);
-    const retry = await saveDocumentTool.handler({});
+    const retry = await saveDocumentTool.handler({ document_id: "42" });
 
     expect(retry.ok).toBe(true);
     expect(wg.registryGet(key)?.state).toBe("owned");
@@ -431,7 +443,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     mockRun.mockResolvedValueOnce({ ok: false, error: { kind: "io_error", message: "boom" } } as never);
     hook.duringSend = (p) => appendFileSync(p, "zz"); // the file changes while "InDesign" runs
 
-    const env = await saveDocumentTool.handler({});
+    const env = await saveDocumentTool.handler({ document_id: "42" });
 
     expect(failure(env).kind).toBe("io_error"); // transport envelope propagated
     const record = wg.registryGet(key);
@@ -442,7 +454,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     // and the next write to that path is refused, not silently allowed
     preQueryOnly(path);
     hook.duringSend = null;
-    const next = failure(await saveDocumentTool.handler({}));
+    const next = failure(await saveDocumentTool.handler({ document_id: "42" }));
     expect(next.kind).toBe("name_collision");
     expect(next.reason).toBe("uncertain");
   });
@@ -452,7 +464,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     preQueryOnly("");
     mockRun.mockResolvedValueOnce(preSaveFailure as never);
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).not.toContain("was left in place");
     expect(wg.registryGet(key)?.state).toBe("uncertain");
@@ -463,11 +475,11 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     const { path, key } = newPath();
     preQueryOnly("");
     mockRun.mockResolvedValueOnce(preSaveFailure as never);
-    failure(await saveDocumentTool.handler({ path }));
+    failure(await saveDocumentTool.handler({ document_id: "42", path }));
     expect(existsSync(path)).toBe(false);
 
     queueSaveAs(path);
-    const retry = await saveDocumentTool.handler({ path });
+    const retry = await saveDocumentTool.handler({ document_id: "42", path });
 
     expect(retry.ok).toBe(true);
     expect(wg.registryGet(key)?.state).toBe("owned");
@@ -478,7 +490,7 @@ describe("failure handling and registry (F2-3, F2-7, F2-8)", () => {
     preQueryOnly("");
     mockRun.mockRejectedValueOnce(new Error("osascript died"));
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("io_error");
     expect(error.reason).toBe("uncertain");
@@ -530,10 +542,10 @@ describe("competing requests to the same path — serialized by the save lock (F
     const t = installTransport({ documentIds: ["42", opts.secondDocumentId], fullName: "", firstWrite: first.promise });
     if (opts.beforeFirstSend) hook.beforeSend = (p) => opts.beforeFirstSend!(p);
 
-    const r1 = saveDocumentTool.handler({ path });
+    const r1 = saveDocumentTool.handler({ document_id: "42", path });
     await vi.waitFor(() => expect(t.writes()).toBe(1)); // R1 is inside its send; the record is "pending"
     hook.beforeSend = null;
-    const r2 = saveDocumentTool.handler({ path });
+    const r2 = saveDocumentTool.handler({ document_id: "42", path });
     await settle();
     expect(t.log).toEqual(["pre", "write"]); // R2 has not started: not even its pre-query
 
@@ -546,7 +558,7 @@ describe("competing requests to the same path — serialized by the save lock (F
     const { path, key } = newPath();
     const t = installTransport({ documentIds: ["42"], fullName: "", firstWrite: Promise.resolve({ ok: true, result: { path } }) });
 
-    const [a, b] = await Promise.all([saveDocumentTool.handler({ path }), saveDocumentTool.handler({ path })]);
+    const [a, b] = await Promise.all([saveDocumentTool.handler({ document_id: "42", path }), saveDocumentTool.handler({ document_id: "42", path })]);
 
     expect([a.ok, b.ok]).toEqual([true, true]);
     expect(t.log).toEqual(["pre", "write", "pre", "write"]); // strictly sequential, never "pre", "pre"
@@ -603,9 +615,9 @@ describe("competing requests to the same path — serialized by the save lock (F
     let sends = 0;
     hook.duringSend = (p) => { if (++sends === 2) appendFileSync(p, "SAVED-BY-SECOND"); };
 
-    const r1 = saveDocumentTool.handler({});
+    const r1 = saveDocumentTool.handler({ document_id: "42" });
     await vi.waitFor(() => expect(t.writes()).toBe(1));
-    const r2 = saveDocumentTool.handler({});
+    const r2 = saveDocumentTool.handler({ document_id: "42" });
     await settle();
     expect(t.log).toEqual(["pre", "write"]); // the second call waits; it has not queried anything yet
 

@@ -18,7 +18,19 @@ describe("apply_paragraph_style tool", () => {
     expect(applyParagraphStyleTool.description.length).toBeGreaterThan(0);
   });
 
-  it("requires frame_id and style_name", () => {
+    it("rejects missing document_id", () => {
+    expect(applyParagraphStyleTool.inputSchema.safeParse({ frame_id: "f1", style_name: "Body" }).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(applyParagraphStyleTool.inputSchema.safeParse({ document_id: "", frame_id: "f1", style_name: "Body" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(applyParagraphStyleTool.inputSchema.safeParse({ document_id: "   ", frame_id: "f1", style_name: "Body" }).success).toBe(false);
+  });
+
+it("requires frame_id and style_name", () => {
     expect(
       applyParagraphStyleTool.inputSchema.safeParse({ frame_id: "f1" }).success,
     ).toBe(false);
@@ -30,6 +42,7 @@ describe("apply_paragraph_style tool", () => {
   it("accepts minimal valid input", () => {
     expect(
       applyParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         style_name: "Body",
       }).success,
@@ -42,7 +55,7 @@ describe("apply_paragraph_style tool", () => {
       result: { frame_id: "f1", style_name: "Body", affected_paragraphs: 3 },
     });
 
-    await applyParagraphStyleTool.handler({ frame_id: "f1", style_name: "Body" });
+    await applyParagraphStyleTool.handler({ document_id: "doc-1", frame_id: "f1", style_name: "Body" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("findFrameById");
@@ -57,6 +70,7 @@ describe("apply_paragraph_style tool", () => {
     });
 
     const env = await applyParagraphStyleTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       style_name: "Body",
     });
@@ -85,6 +99,7 @@ describe("apply_paragraph_style tool", () => {
     });
 
     const env = await applyParagraphStyleTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       style_name: "Missing",
     });
@@ -148,7 +163,7 @@ vi.mock("../../../src/compose.js", async (importOriginal) => {
 });
 
 describe("apply_paragraph_style — Stage 7C tamper tests", () => {
-  const validInput = { frame_id: "f1", style_name: "Body" };
+  const validInput = { document_id: "doc-1", frame_id: "f1", style_name: "Body" };
 
   beforeEach(() => {
     tamperAP.mode = "passthrough";

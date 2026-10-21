@@ -32,12 +32,14 @@ integrationGate("place_image (integration)", () => {
         if (!create.ok) return;
 
         const frame = await createImageFrameTool.handler({
+          document_id: create.result!.document_id,
           page_id: create.result!.page_ids[0],
           bounds_mm: { x: 12, y: 12, width: 100, height: 60 },
         });
         if (!frame.ok) return;
 
         const env = await placeImageTool.handler({
+          document_id: create.result!.document_id,
           frame_id: frame.result!.frame_id,
           image_path: imagePath,
         });
@@ -55,7 +57,13 @@ integrationGate("place_image (integration)", () => {
   it(
     "returns io_error for a missing image file before dispatching",
     async () => {
+      const create2 = await createDocumentTool.handler({
+        preset: "A4",
+        margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
+      });
+      if (!create2.ok) return;
       const env = await placeImageTool.handler({
+        document_id: create2.result!.document_id,
         frame_id: "anything",
         image_path: "/no/such/file.png",
       });

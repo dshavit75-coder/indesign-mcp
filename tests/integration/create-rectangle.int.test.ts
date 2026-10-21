@@ -18,6 +18,7 @@ integrationGate("create_rectangle (integration)", () => {
       if (!create.ok) return;
 
       const env = await createRectangleTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 100, height: 50 },
       });
@@ -38,6 +39,7 @@ integrationGate("create_rectangle (integration)", () => {
       if (!create.ok) return;
 
       const env = await createRectangleTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 100, height: 30 },
         fill_hex: "#FF6600",

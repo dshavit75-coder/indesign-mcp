@@ -20,7 +20,7 @@ const InputSchema = z
     stroke_hex: z.string().regex(HEX_COLOR_RE).optional(),
     stroke_weight_pt: z.number().nonnegative().optional(),
     corner_radius_mm: z.number().nonnegative().optional(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict()
   .refine(
@@ -48,9 +48,7 @@ interface Result {
 
 function buildScriptBody(input: Input): string {
   const docExpr =
-    input.document_id !== undefined
-      ? `findDocumentById(${lit(input.document_id)})`
-      : "app.activeDocument";
+    `findDocumentById(${lit(input.document_id)})`;
 
   const { x, y, width, height } = input.bounds_mm;
   const y2 = y + height;

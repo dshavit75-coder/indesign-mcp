@@ -18,13 +18,14 @@ integrationGate("export_pdf (integration)", () => {
       const pdf = join(tmpDir, "out.pdf");
 
       try {
-        await createDocumentTool.handler({
+        const create = await createDocumentTool.handler({
           preset: "A4",
           pages: 2,
           margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
         });
+        if (!create.ok) return;
 
-        const env = await exportPdfTool.handler({ path: pdf });
+        const env = await exportPdfTool.handler({ document_id: create.result!.document_id, path: pdf });
         expect(env.ok).toBe(true);
         if (!env.ok) return;
         expect(env.result?.path).toBe(pdf);

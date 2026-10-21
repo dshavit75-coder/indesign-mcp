@@ -25,7 +25,7 @@ import { WriteMutex } from "../write-mutex.js";
 const InputSchema = z
   .object({
     path: z.string().optional(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict();
 
@@ -92,11 +92,8 @@ function __readFullName(doc) {
 // This does NOT use write-guard because it is read-only.
 // ---------------------------------------------------------------------------
 
-function buildPreQueryScript(inputDocumentId: string | undefined): string {
-  const docExpr =
-    inputDocumentId !== undefined
-      ? `findDocumentById(${lit(inputDocumentId)})`
-      : "app.activeDocument";
+function buildPreQueryScript(inputDocumentId: string): string {
+  const docExpr = `findDocumentById(${lit(inputDocumentId)})`;
 
   return `
 ${prelude(findDocumentById, READ_FULLNAME_HELPER)}
@@ -105,7 +102,7 @@ if (app.documents.length === 0) {
 }
 var doc = ${docExpr};
 if (doc === null) {
-  throw { name: "not_found", message: "document not found: " + ${inputDocumentId !== undefined ? lit(inputDocumentId) : '""'} };
+  throw { name: "not_found", message: "document not found: " + ${lit(inputDocumentId)} };
 }
 return { documentId: String(doc.id), fullName: __readFullName(doc) };
 `;

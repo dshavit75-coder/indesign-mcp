@@ -11,12 +11,14 @@ integrationGate("create_swatch (integration)", () => {
   it(
     "creates a named swatch and returns swatch_id",
     async () => {
-      await createDocumentTool.handler({
+      const create = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create.ok) return;
+      const docId = create.result!.document_id;
 
-      const env = await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+      const env = await createSwatchTool.handler({ document_id: docId, name: "Brand Orange", hex: "#FF6600" });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.result?.swatch_name).toBe("Brand Orange");
@@ -30,14 +32,17 @@ integrationGate("create_swatch (integration)", () => {
   it(
     "name_collision when swatch exists and on_collision is 'error'",
     async () => {
-      await createDocumentTool.handler({
+      const create = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create.ok) return;
+      const docId = create.result!.document_id;
 
-      await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+      await createSwatchTool.handler({ document_id: docId, name: "Brand Orange", hex: "#FF6600" });
 
       const second = await createSwatchTool.handler({
+        document_id: docId,
         name: "Brand Orange",
         hex: "#0000FF",
         on_collision: "error",
@@ -52,14 +57,17 @@ integrationGate("create_swatch (integration)", () => {
   it(
     "on_collision 'update' modifies the existing swatch RGB values",
     async () => {
-      await createDocumentTool.handler({
+      const create = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create.ok) return;
+      const docId = create.result!.document_id;
 
-      await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+      await createSwatchTool.handler({ document_id: docId, name: "Brand Orange", hex: "#FF6600" });
 
       const env = await createSwatchTool.handler({
+        document_id: docId,
         name: "Brand Orange",
         hex: "#0000FF",
         on_collision: "update",
@@ -76,14 +84,17 @@ integrationGate("create_swatch (integration)", () => {
   it(
     "on_collision 'version' creates 'Brand Orange 2' when 'Brand Orange' exists",
     async () => {
-      await createDocumentTool.handler({
+      const create = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create.ok) return;
+      const docId = create.result!.document_id;
 
-      await createSwatchTool.handler({ name: "Brand Orange", hex: "#FF6600" });
+      await createSwatchTool.handler({ document_id: docId, name: "Brand Orange", hex: "#FF6600" });
 
       const env = await createSwatchTool.handler({
+        document_id: docId,
         name: "Brand Orange",
         hex: "#0000FF",
         on_collision: "version",

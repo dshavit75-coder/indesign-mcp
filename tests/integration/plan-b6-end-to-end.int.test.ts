@@ -32,6 +32,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         const pageId = createDoc.result!.page_ids[0];
 
         const frame1Env = await createTextFrameTool.handler({
+          document_id: createDoc.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 20, y: 30, width: 170, height: 60 },
         });
@@ -40,6 +41,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         const frame1Id = frame1Env.result!.frame_id;
 
         const frame2Env = await createTextFrameTool.handler({
+          document_id: createDoc.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 20, y: 100, width: 170, height: 120 },
         });
@@ -48,6 +50,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         const frame2Id = frame2Env.result!.frame_id;
 
         const insetEnv = await setFrameInsetTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frame1Id,
           inset_mm: { top: 5, left: 5, bottom: 5, right: 5 },
         });
@@ -58,6 +61,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         expect(insetEnv.document_state_delta?.changed_frames?.[0].inset_mm?.top).toBeCloseTo(5, 1);
 
         const colEnv = await setFrameColumnsTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frame1Id,
           count: 2,
           gutter_mm: 4,
@@ -69,6 +73,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         expect(colEnv.document_state_delta?.changed_frames?.[0].columns?.count).toBe(2);
 
         const threadEnv = await threadTextFramesTool.handler({
+          document_id: createDoc.result!.document_id,
           source_frame_id: frame1Id,
           target_frame_id: frame2Id,
         });
@@ -84,6 +89,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         const longText = paragraph.repeat(5);
 
         const setTextEnv = await setTextTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frame1Id,
           text: longText,
         });
@@ -91,7 +97,7 @@ integrationGate("Plan B6 end-to-end (integration)", () => {
         if (!setTextEnv.ok) return;
         expect(setTextEnv.result?.character_count).toBeGreaterThan(0);
 
-        const exportEnv = await exportPdfTool.handler({ path: pdfPath });
+        const exportEnv = await exportPdfTool.handler({ document_id: createDoc.result!.document_id, path: pdfPath });
         expect(exportEnv.ok).toBe(true);
         expect(existsSync(pdfPath)).toBe(true);
         expect(statSync(pdfPath).size).toBeGreaterThan(0);

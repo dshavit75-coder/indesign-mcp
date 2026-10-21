@@ -18,7 +18,7 @@ integrationGate("create_parent_page (integration)", () => {
       expect(create.ok).toBe(true);
       if (!create.ok) return;
 
-      const env = await createParentPageTool.handler({ base_name: "Footer" });
+      const env = await createParentPageTool.handler({ document_id: create.result!.document_id, base_name: "Footer" });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
 
@@ -36,12 +36,14 @@ integrationGate("create_parent_page (integration)", () => {
   it(
     "creates a master spread with an explicit name_prefix",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
 
       const env = await createParentPageTool.handler({
+        document_id: create2.result!.document_id,
         base_name: "Chapter",
         name_prefix: "C",
       });

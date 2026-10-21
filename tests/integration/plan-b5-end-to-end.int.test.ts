@@ -34,6 +34,7 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
         const pageId = createDoc.result!.page_ids[0];
 
         const bodyStyle = await defineParagraphStyleTool.handler({
+          document_id: createDoc.result!.document_id,
           name: "Body",
           size_pt: 12,
           leading_pt: 16,
@@ -42,6 +43,7 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
         expect(bodyStyle.ok).toBe(true);
 
         const accentStyle = await defineCharacterStyleTool.handler({
+          document_id: createDoc.result!.document_id,
           name: "Accent",
           fill_hex: "#FF6600",
         });
@@ -52,6 +54,7 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
         expect(accentStyle.document_state_delta?.new_character_styles).toEqual([{ name: "Accent" }]);
 
         const frameEnv = await createTextFrameTool.handler({
+          document_id: createDoc.result!.document_id,
           page_id: pageId,
           bounds_mm: { x: 20, y: 40, width: 170, height: 30 },
         });
@@ -61,12 +64,14 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
 
         // "Total displaced: 1.5M people" — 28 visible chars
         const setTextEnv = await setTextTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frameId,
           text: "Total displaced: 1.5M people",
         });
         expect(setTextEnv.ok).toBe(true);
 
         const applyBody = await applyParagraphStyleTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frameId,
           style_name: "Body",
         });
@@ -74,6 +79,7 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
 
         // "Total displaced: " = 17 chars; "1.5M" = chars 17..20 inclusive = end_index 21 exclusive.
         const applyAccent = await applyCharacterStyleToRangeTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frameId,
           character_style_name: "Accent",
           start_index: 17,
@@ -92,6 +98,7 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
 
         // Replace "people" (chars 22..27 inclusive, end_index 28 exclusive) with "individuals".
         const replaceEnv = await setTextInRangeTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: frameId,
           start_index: 22,
           end_index: 28,
@@ -106,7 +113,7 @@ integrationGate("Plan B5 end-to-end (integration)", () => {
         expect(replaceEnv.result?.total_length_after).toBeGreaterThanOrEqual(33);
         expect(replaceEnv.result?.total_length_after).toBeLessThanOrEqual(34);
 
-        const exportEnv = await exportPdfTool.handler({ path: pdfPath });
+        const exportEnv = await exportPdfTool.handler({ document_id: createDoc.result!.document_id, path: pdfPath });
         expect(exportEnv.ok).toBe(true);
         expect(existsSync(pdfPath)).toBe(true);
         expect(statSync(pdfPath).size).toBeGreaterThan(0);

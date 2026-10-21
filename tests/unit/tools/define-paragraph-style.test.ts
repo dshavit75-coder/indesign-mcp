@@ -20,19 +20,32 @@ describe("define_paragraph_style tool", () => {
 
   it("accepts minimal input (just name)", () => {
     expect(
-      defineParagraphStyleTool.inputSchema.safeParse({ name: "Body" }).success,
+      defineParagraphStyleTool.inputSchema.safeParse({ document_id: "doc-1", name: "Body" }).success,
     ).toBe(true);
+  });
+
+  it("rejects missing document_id", () => {
+    expect(defineParagraphStyleTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(defineParagraphStyleTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(defineParagraphStyleTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
   });
 
   it("rejects empty name", () => {
     expect(
-      defineParagraphStyleTool.inputSchema.safeParse({ name: "" }).success,
+      defineParagraphStyleTool.inputSchema.safeParse({ document_id: "doc-1", name: "" }).success,
     ).toBe(false);
   });
 
   it("rejects font_style without font_family", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         font_style: "Bold",
       }).success,
@@ -42,6 +55,7 @@ describe("define_paragraph_style tool", () => {
   it("accepts font_family alone (no font_style)", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         font_family: "Helvetica Neue",
       }).success,
@@ -51,6 +65,7 @@ describe("define_paragraph_style tool", () => {
   it("accepts font_family + font_style", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         font_family: "Helvetica Neue",
         font_style: "Bold",
@@ -61,18 +76,21 @@ describe("define_paragraph_style tool", () => {
   it("rejects invalid color_hex format", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         color_hex: "red",
       }).success,
     ).toBe(false);
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         color_hex: "#XYZ",
       }).success,
     ).toBe(false);
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         color_hex: "#FF",
       }).success,
@@ -82,12 +100,14 @@ describe("define_paragraph_style tool", () => {
   it("accepts valid color_hex (case-insensitive)", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         color_hex: "#FF0000",
       }).success,
     ).toBe(true);
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         color_hex: "#ff0000",
       }).success,
@@ -97,12 +117,14 @@ describe("define_paragraph_style tool", () => {
   it("rejects size_pt <= 0", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         size_pt: 0,
       }).success,
     ).toBe(false);
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         size_pt: -1,
       }).success,
@@ -112,6 +134,7 @@ describe("define_paragraph_style tool", () => {
   it("accepts leading_pt as 'auto'", () => {
     expect(
       defineParagraphStyleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         name: "Body",
         leading_pt: "auto",
       }).success,
@@ -124,7 +147,7 @@ describe("define_paragraph_style tool", () => {
       result: { style_id: "s1", name: "Body", on_collision_outcome: "created" },
     });
 
-    await defineParagraphStyleTool.handler({ name: "Body" });
+    await defineParagraphStyleTool.handler({ document_id: "doc-1", name: "Body" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("Body");
@@ -138,6 +161,7 @@ describe("define_paragraph_style tool", () => {
     });
 
     await defineParagraphStyleTool.handler({
+      document_id: "doc-1",
       name: "Headline",
       color_hex: "#FF0000",
     });
@@ -154,6 +178,7 @@ describe("define_paragraph_style tool", () => {
     });
 
     await defineParagraphStyleTool.handler({
+      document_id: "doc-1",
       name: "Headline",
       color_hex: "#abcdef",
     });
@@ -169,6 +194,7 @@ describe("define_paragraph_style tool", () => {
     });
 
     await defineParagraphStyleTool.handler({
+      document_id: "doc-1",
       name: "Headline",
       font_family: "Helvetica Neue",
       font_style: "Bold",
@@ -186,6 +212,7 @@ describe("define_paragraph_style tool", () => {
     for (const c of ["error", "update", "version"] as const) {
       expect(
         defineParagraphStyleTool.inputSchema.safeParse({
+          document_id: "doc-1",
           name: "Body",
           on_collision: c,
         }).success,
@@ -199,7 +226,7 @@ describe("define_paragraph_style tool", () => {
       result: { style_id: "s7", name: "Body", on_collision_outcome: "created" },
     });
 
-    const env = await defineParagraphStyleTool.handler({ name: "Body" });
+    const env = await defineParagraphStyleTool.handler({ document_id: "doc-1", name: "Body" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -213,6 +240,7 @@ describe("define_paragraph_style tool", () => {
     });
 
     const env = await defineParagraphStyleTool.handler({
+      document_id: "doc-1",
       name: "Body",
       color_hex: "#000000",
     });
@@ -228,7 +256,7 @@ describe("define_paragraph_style tool", () => {
       error: { kind: "name_collision", message: "style 'Body' already exists" },
     });
 
-    const env = await defineParagraphStyleTool.handler({ name: "Body" });
+    const env = await defineParagraphStyleTool.handler({ document_id: "doc-1", name: "Body" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("name_collision");
@@ -242,7 +270,7 @@ describe("define_paragraph_style tool", () => {
       result: { style_id: "s1", name: "Body", on_collision_outcome: "created" },
     });
 
-    const env = await defineParagraphStyleTool.handler({ name: "Body" });
+    const env = await defineParagraphStyleTool.handler({ document_id: "doc-1", name: "Body" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -255,7 +283,7 @@ describe("define_paragraph_style tool", () => {
       result: { style_id: "s1", name: "Body", on_collision_outcome: "created" },
     });
 
-    const env = await defineParagraphStyleTool.handler({ name: "Body" });
+    const env = await defineParagraphStyleTool.handler({ document_id: "doc-1", name: "Body" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -269,6 +297,7 @@ describe("define_paragraph_style tool", () => {
     });
 
     const env = await defineParagraphStyleTool.handler({
+      document_id: "doc-1",
       name: "Body",
       on_collision: "version",
     });
@@ -285,6 +314,7 @@ describe("define_paragraph_style tool", () => {
     });
 
     const env = await defineParagraphStyleTool.handler({
+      document_id: "doc-1",
       name: "Body",
       on_collision: "update",
     });

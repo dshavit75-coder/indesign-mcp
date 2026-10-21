@@ -23,6 +23,7 @@ describe("apply_character_style_to_range tool", () => {
   it("accepts valid minimal input", () => {
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         character_style_name: "Accent",
         start_index: 0,
@@ -31,9 +32,22 @@ describe("apply_character_style_to_range tool", () => {
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(applyCharacterStyleToRangeTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(applyCharacterStyleToRangeTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(applyCharacterStyleToRangeTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects empty frame_id", () => {
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "",
         character_style_name: "Accent",
         start_index: 0,
@@ -45,6 +59,7 @@ describe("apply_character_style_to_range tool", () => {
   it("rejects empty character_style_name", () => {
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         character_style_name: "",
         start_index: 0,
@@ -56,6 +71,7 @@ describe("apply_character_style_to_range tool", () => {
   it("rejects start_index < 0", () => {
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         character_style_name: "Accent",
         start_index: -1,
@@ -67,6 +83,7 @@ describe("apply_character_style_to_range tool", () => {
   it("rejects end_index <= start_index", () => {
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         character_style_name: "Accent",
         start_index: 5,
@@ -75,6 +92,7 @@ describe("apply_character_style_to_range tool", () => {
     ).toBe(false);
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         character_style_name: "Accent",
         start_index: 5,
@@ -83,7 +101,7 @@ describe("apply_character_style_to_range tool", () => {
     ).toBe(false);
   });
 
-  it("accepts optional document_id", () => {
+  it("accepts valid document_id", () => {
     expect(
       applyCharacterStyleToRangeTool.inputSchema.safeParse({
         frame_id: "f1",
@@ -110,6 +128,7 @@ describe("apply_character_style_to_range tool", () => {
     });
 
     await applyCharacterStyleToRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       character_style_name: "Accent",
       start_index: 10,
@@ -136,6 +155,7 @@ describe("apply_character_style_to_range tool", () => {
     });
 
     await applyCharacterStyleToRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       character_style_name: "Accent",
       start_index: 0,
@@ -160,6 +180,7 @@ describe("apply_character_style_to_range tool", () => {
     });
 
     await applyCharacterStyleToRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       character_style_name: "Accent",
       start_index: 0,
@@ -186,6 +207,7 @@ describe("apply_character_style_to_range tool", () => {
     });
 
     const env = await applyCharacterStyleToRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       character_style_name: "Accent",
       start_index: 10,
@@ -208,6 +230,7 @@ describe("apply_character_style_to_range tool", () => {
     });
 
     const env = await applyCharacterStyleToRangeTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       character_style_name: "Accent",
       start_index: 0,
@@ -269,6 +292,7 @@ vi.mock("../../../src/compose.js", async (importOriginal) => {
 
 describe("apply_character_style_to_range — Stage 7C tamper tests", () => {
   const validInput = {
+    document_id: "doc-1",
     frame_id: "f1",
     character_style_name: "Accent",
     start_index: 0,

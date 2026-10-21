@@ -20,13 +20,14 @@ describe("create_parent_page tool", () => {
 
   it("accepts minimal valid input — base_name only", () => {
     expect(
-      createParentPageTool.inputSchema.safeParse({ base_name: "Footer" }).success,
+      createParentPageTool.inputSchema.safeParse({ document_id: "doc-1", base_name: "Footer" }).success,
     ).toBe(true);
   });
 
   it("accepts base_name with optional name_prefix and facing", () => {
     expect(
       createParentPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         base_name: "Chapter",
         name_prefix: "B",
         facing: true,
@@ -34,15 +35,28 @@ describe("create_parent_page tool", () => {
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(createParentPageTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(createParentPageTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(createParentPageTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects empty base_name", () => {
     expect(
-      createParentPageTool.inputSchema.safeParse({ base_name: "" }).success,
+      createParentPageTool.inputSchema.safeParse({ document_id: "doc-1", base_name: "" }).success,
     ).toBe(false);
   });
 
   it("rejects base_name longer than 60 characters", () => {
     expect(
       createParentPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         base_name: "A".repeat(61),
       }).success,
     ).toBe(false);
@@ -51,6 +65,7 @@ describe("create_parent_page tool", () => {
   it("rejects name_prefix that is not a single uppercase letter", () => {
     expect(
       createParentPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         base_name: "Footer",
         name_prefix: "AB",
       }).success,
@@ -58,6 +73,7 @@ describe("create_parent_page tool", () => {
 
     expect(
       createParentPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         base_name: "Footer",
         name_prefix: "a",
       }).success,
@@ -65,6 +81,7 @@ describe("create_parent_page tool", () => {
 
     expect(
       createParentPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         base_name: "Footer",
         name_prefix: "1",
       }).success,
@@ -74,6 +91,7 @@ describe("create_parent_page tool", () => {
   it("accepts a valid single-letter uppercase name_prefix", () => {
     expect(
       createParentPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         base_name: "Footer",
         name_prefix: "Z",
       }).success,
@@ -86,7 +104,7 @@ describe("create_parent_page tool", () => {
       result: { parent_name: "A-Footer", page_ids: ["ms1", "ms2"], page_count: 2 },
     });
 
-    await createParentPageTool.handler({ base_name: "Footer" });
+    await createParentPageTool.handler({ document_id: "doc-1", base_name: "Footer" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("masterSpreads.add");
@@ -100,7 +118,7 @@ describe("create_parent_page tool", () => {
       result: { parent_name: "B-Footer", page_ids: ["ms3"], page_count: 1 },
     });
 
-    await createParentPageTool.handler({ base_name: "Footer", name_prefix: "B" });
+    await createParentPageTool.handler({ document_id: "doc-1", base_name: "Footer", name_prefix: "B" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("namePrefix");
@@ -113,7 +131,7 @@ describe("create_parent_page tool", () => {
       result: { parent_name: "A-Footer", page_ids: ["ms1", "ms2"], page_count: 2 },
     });
 
-    const env = await createParentPageTool.handler({ base_name: "Footer" });
+    const env = await createParentPageTool.handler({ document_id: "doc-1", base_name: "Footer" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -129,7 +147,7 @@ describe("create_parent_page tool", () => {
       error: { kind: "script_error", message: "bad prefix letter" },
     });
 
-    const env = await createParentPageTool.handler({ base_name: "Footer" });
+    const env = await createParentPageTool.handler({ document_id: "doc-1", base_name: "Footer" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("script_error");

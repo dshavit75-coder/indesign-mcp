@@ -22,6 +22,7 @@ integrationGate("apply_character_style_to_range (integration)", () => {
       if (!doc.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: doc.result!.document_id,
         page_id: doc.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
@@ -29,17 +30,20 @@ integrationGate("apply_character_style_to_range (integration)", () => {
       if (!frame.ok) return;
 
       await setTextTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "Hello world",
       });
 
       await defineCharacterStyleTool.handler({
+        document_id: doc.result!.document_id,
         name: "Accent",
         fill_hex: "#FF0000",
       });
 
       // Apply "Accent" to "world" (chars 6..11)
       const env = await applyCharacterStyleToRangeTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         character_style_name: "Accent",
         start_index: 6,
@@ -68,6 +72,7 @@ integrationGate("apply_character_style_to_range (integration)", () => {
       if (!doc.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: doc.result!.document_id,
         page_id: doc.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
@@ -75,11 +80,13 @@ integrationGate("apply_character_style_to_range (integration)", () => {
       if (!frame.ok) return;
 
       await setTextTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "Hello",
       });
 
       const env = await applyCharacterStyleToRangeTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         character_style_name: "DoesNotExist",
         start_index: 0,
@@ -103,6 +110,7 @@ integrationGate("apply_character_style_to_range (integration)", () => {
       if (!doc.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: doc.result!.document_id,
         page_id: doc.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
@@ -110,16 +118,19 @@ integrationGate("apply_character_style_to_range (integration)", () => {
       if (!frame.ok) return;
 
       await setTextTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "Hi",  // 2 chars
       });
 
       await defineCharacterStyleTool.handler({
+        document_id: doc.result!.document_id,
         name: "Accent",
         fill_hex: "#FF0000",
       });
 
       const env = await applyCharacterStyleToRangeTool.handler({
+        document_id: doc.result!.document_id,
         frame_id: frame.result!.frame_id,
         character_style_name: "Accent",
         start_index: 0,

@@ -13,7 +13,7 @@ const InputSchema = z
     at: z
       .union([z.literal("start"), z.literal("end"), AfterPageId, BeforePageId])
       .optional(),
-    document_id: z.string().optional(),
+    document_id: z.string().refine(s => s.trim().length > 0, { message: "document_id must contain at least one non-whitespace character" }),
   })
   .strict();
 
@@ -35,9 +35,7 @@ interface Result {
 function buildScriptBody(input: Input): string {
   const at = input.at ?? "end";
   const docExpr =
-    input.document_id !== undefined
-      ? `findDocumentById(${lit(input.document_id)})`
-      : "app.activeDocument";
+    `findDocumentById(${lit(input.document_id)})`;
 
   let insertion: string;
   if (at === "end") {

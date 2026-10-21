@@ -12,12 +12,14 @@ integrationGate("list_pages (integration)", () => {
   it(
     "returns at least one page for a newly created document",
     async () => {
-      await createDocumentTool.handler({
+      const create1 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create1.ok) return;
+      const docId1 = create1.result!.document_id;
 
-      const env = await listPagesTool.handler({});
+      const env = await listPagesTool.handler({ document_id: docId1 });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.result!.pages.length).toBeGreaterThanOrEqual(1);
@@ -35,19 +37,21 @@ integrationGate("list_pages (integration)", () => {
   it(
     "reflects added pages",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
+      const docId2 = create2.result!.document_id;
 
-      const beforeEnv = await listPagesTool.handler({});
+      const beforeEnv = await listPagesTool.handler({ document_id: docId2 });
       expect(beforeEnv.ok).toBe(true);
       if (!beforeEnv.ok) return;
       const countBefore = beforeEnv.result!.pages.length;
 
-      await addPageTool.handler({});
+      await addPageTool.handler({ document_id: docId2 });
 
-      const afterEnv = await listPagesTool.handler({});
+      const afterEnv = await listPagesTool.handler({ document_id: docId2 });
       expect(afterEnv.ok).toBe(true);
       if (!afterEnv.ok) return;
       expect(afterEnv.result!.pages.length).toBe(countBefore + 1);
@@ -63,12 +67,14 @@ integrationGate("list_pages (integration)", () => {
   it(
     "applied_parent_name is '[None]' when no parent is applied",
     async () => {
-      await createDocumentTool.handler({
+      const create3 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create3.ok) return;
+      const docId3 = create3.result!.document_id;
 
-      const env = await listPagesTool.handler({});
+      const env = await listPagesTool.handler({ document_id: docId3 });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       // New A4 doc pages may or may not have a master — just assert the field is present

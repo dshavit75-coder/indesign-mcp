@@ -18,22 +18,33 @@ describe("add_page tool", () => {
     expect(addPageTool.description.length).toBeGreaterThan(0);
   });
 
-  it("accepts an empty input (defaults: at='end', active doc)", () => {
-    const result = addPageTool.inputSchema.safeParse({});
-    expect(result.success).toBe(true);
+  it("rejects missing document_id", () => {
+    expect(addPageTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(addPageTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(addPageTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
+  it("accepts valid document_id", () => {
+    expect(addPageTool.inputSchema.safeParse({ document_id: "doc-1" }).success).toBe(true);
   });
 
   it("accepts at: 'start' / 'end'", () => {
-    expect(addPageTool.inputSchema.safeParse({ at: "start" }).success).toBe(true);
-    expect(addPageTool.inputSchema.safeParse({ at: "end" }).success).toBe(true);
+    expect(addPageTool.inputSchema.safeParse({ document_id: "doc-1", at: "start" }).success).toBe(true);
+    expect(addPageTool.inputSchema.safeParse({ document_id: "doc-1", at: "end" }).success).toBe(true);
   });
 
   it("accepts at: { after_page_id: '...' } and at: { before_page_id: '...' }", () => {
     expect(
-      addPageTool.inputSchema.safeParse({ at: { after_page_id: "p1" } }).success,
+      addPageTool.inputSchema.safeParse({ document_id: "doc-1", at: { after_page_id: "p1" } }).success,
     ).toBe(true);
     expect(
-      addPageTool.inputSchema.safeParse({ at: { before_page_id: "p1" } }).success,
+      addPageTool.inputSchema.safeParse({ document_id: "doc-1", at: { before_page_id: "p1" } }).success,
     ).toBe(true);
   });
 
@@ -48,16 +59,17 @@ describe("add_page tool", () => {
     expect(result.success).toBe(false);
   });
 
-  it("dispatches a script that uses the active document by default", async () => {
+  it("dispatches a script using findDocumentById (no activeDocument fallback)", async () => {
     vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
       ok: true,
       result: { new_page_id: "p2", position_index: 1, page_count: 2 },
     });
 
-    await addPageTool.handler({});
+    await addPageTool.handler({ document_id: "doc-1" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
-    expect(arg.scriptTemplate).toContain("app.activeDocument");
+    expect(arg.scriptTemplate).toContain("findDocumentById");
+    expect(arg.scriptTemplate).not.toContain("app.activeDocument");
   });
 
   it("dispatches a script that resolves a document by id when document_id is given", async () => {
@@ -78,7 +90,7 @@ describe("add_page tool", () => {
       result: { new_page_id: "p7", position_index: 4, page_count: 5 },
     });
 
-    const env = await addPageTool.handler({ at: "end" });
+    const env = await addPageTool.handler({ document_id: "doc-1", at: "end" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;

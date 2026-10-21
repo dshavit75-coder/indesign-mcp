@@ -11,12 +11,15 @@ integrationGate("define_character_style (integration)", () => {
   it(
     "creates a character style with font_family",
     async () => {
-      await createDocumentTool.handler({
+      const create1 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create1.ok) return;
+      const docId1 = create1.result!.document_id;
 
       const env = await defineCharacterStyleTool.handler({
+        document_id: docId1,
         name: "Emphasis",
         font_family: "Helvetica Neue",
         font_style: "Italic",
@@ -32,12 +35,15 @@ integrationGate("define_character_style (integration)", () => {
   it(
     "creates a character style with fill_hex, returns fill_swatch_id",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
+      const docId2 = create2.result!.document_id;
 
       const env = await defineCharacterStyleTool.handler({
+        document_id: docId2,
         name: "Accent",
         fill_hex: "#FF6600",
       });
@@ -52,18 +58,22 @@ integrationGate("define_character_style (integration)", () => {
   it(
     "name_collision when style exists and on_collision is 'error'",
     async () => {
-      await createDocumentTool.handler({
+      const create3 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create3.ok) return;
+      const docId3 = create3.result!.document_id;
 
       const first = await defineCharacterStyleTool.handler({
+        document_id: docId3,
         name: "Accent",
         fill_hex: "#FF0000",
       });
       expect(first.ok).toBe(true);
 
       const second = await defineCharacterStyleTool.handler({
+        document_id: docId3,
         name: "Accent",
         fill_hex: "#0000FF",
         on_collision: "error",
@@ -78,17 +88,21 @@ integrationGate("define_character_style (integration)", () => {
   it(
     "on_collision 'update' modifies the existing style without creating a new one",
     async () => {
-      await createDocumentTool.handler({
+      const create4 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create4.ok) return;
+      const docId4 = create4.result!.document_id;
 
       await defineCharacterStyleTool.handler({
+        document_id: docId4,
         name: "Accent",
         fill_hex: "#FF0000",
       });
 
       const env = await defineCharacterStyleTool.handler({
+        document_id: docId4,
         name: "Accent",
         fill_hex: "#0000FF",
         on_collision: "update",
@@ -104,17 +118,21 @@ integrationGate("define_character_style (integration)", () => {
   it(
     "on_collision 'version' creates 'Accent 2' when 'Accent' exists",
     async () => {
-      await createDocumentTool.handler({
+      const create5 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create5.ok) return;
+      const docId5 = create5.result!.document_id;
 
       await defineCharacterStyleTool.handler({
+        document_id: docId5,
         name: "Accent",
         fill_hex: "#FF0000",
       });
 
       const env = await defineCharacterStyleTool.handler({
+        document_id: docId5,
         name: "Accent",
         fill_hex: "#0000FF",
         on_collision: "version",

@@ -135,7 +135,7 @@ describe("I1 — a foreign file replaces the placeholder just before cleanupPlac
     let inodeSeen = -1;
     hook.beforeInner = (p) => { inodeSeen = lstatSync(p).ino; swap(p); }; // our placeholder was there; now it is swapped
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(inodeSeen).toBeGreaterThan(0); // our placeholder really was there when the clean-up started
     expect(error.kind).toBe("io_error"); // the original classification
@@ -148,6 +148,18 @@ describe("I1 — a foreign file replaces the placeholder just before cleanupPlac
 });
 
 describe("I2 — our placeholder is removed, then a foreign file appears before the final check", () => {
+  it("rejects missing document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(saveDocumentTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("is classified not-ours (not 'could not be removed'); the new file is untouched and is not our old inode", async () => {
     const path = newPath();
     installTransport();
@@ -155,7 +167,7 @@ describe("I2 — our placeholder is removed, then a foreign file appears before 
     hook.beforeInner = (p) => { ourInode = lstatSync(p).ino; }; // record which file is OURS
     hook.afterInner = (p) => { writeFileSync(p, "FOREIGN CREATED AFTER OUR REMOVAL"); };
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("io_error");
     expect(error.message).toContain(NOTE_NOT_OURS);
@@ -171,7 +183,7 @@ describe("I3 — control: it is still our empty placeholder and cannot be remove
     installTransport();
     hook.beforeInner = (p) => { fsFault.failUnlinkOf = p; }; // removing our placeholder will fail
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.kind).toBe("io_error");
     expect(error.message).toContain(NOTE_FAILED);
@@ -186,7 +198,7 @@ describe("I4 / I5 — a third party removes it, or a file appears where nothing 
     installTransport();
     hook.beforeInner = (p) => unlinkSync(p);
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toBe(PRE_SAVE_MESSAGE); // the original error, unchanged
     expect(existsSync(path)).toBe(false);
@@ -201,7 +213,7 @@ describe("I4 / I5 — a third party removes it, or a file appears where nothing 
     }) as never);
     hook.beforeInner = (p) => writeFileSync(p, "FOREIGN APPEARED");
 
-    const error = failure(await saveDocumentTool.handler({ path }));
+    const error = failure(await saveDocumentTool.handler({ document_id: "42", path }));
 
     expect(error.message).toContain(NOTE_NOT_OURS);
     expect(readFileSync(path, "utf8")).toBe("FOREIGN APPEARED");

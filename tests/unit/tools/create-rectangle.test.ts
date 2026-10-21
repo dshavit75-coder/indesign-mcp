@@ -21,6 +21,7 @@ describe("create_rectangle tool", () => {
   it("accepts minimal valid input", () => {
     expect(
       createRectangleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
       }).success,
@@ -30,6 +31,7 @@ describe("create_rectangle tool", () => {
   it("accepts fill_hex and corner_radius_mm", () => {
     expect(
       createRectangleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
         fill_hex: "#FF6600",
@@ -38,9 +40,22 @@ describe("create_rectangle tool", () => {
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(createRectangleTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(createRectangleTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(createRectangleTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects invalid fill_hex", () => {
     expect(
       createRectangleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
         fill_hex: "red",
@@ -51,6 +66,7 @@ describe("create_rectangle tool", () => {
   it("rejects stroke_weight_pt without stroke_hex", () => {
     expect(
       createRectangleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
         stroke_weight_pt: 1,
@@ -61,6 +77,7 @@ describe("create_rectangle tool", () => {
   it("accepts stroke_weight_pt with stroke_hex", () => {
     expect(
       createRectangleTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
         stroke_hex: "#000000",
@@ -76,6 +93,7 @@ describe("create_rectangle tool", () => {
     });
 
     await createRectangleTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
       fill_hex: "#abcdef",
@@ -95,6 +113,7 @@ describe("create_rectangle tool", () => {
     });
 
     await createRectangleTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
       corner_radius_mm: 4,
@@ -117,6 +136,7 @@ describe("create_rectangle tool", () => {
     });
 
     const env = await createRectangleTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
       fill_hex: "#FF6600",
@@ -144,6 +164,7 @@ describe("create_rectangle tool", () => {
     });
 
     const env = await createRectangleTool.handler({
+      document_id: "doc-1",
       page_id: "p99",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
     });

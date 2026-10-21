@@ -48,13 +48,25 @@ describe("get_page_state tool", () => {
     expect(getPageStateTool.description.length).toBeGreaterThan(0);
   });
 
+  it("rejects missing document_id", () => {
+    expect(getPageStateTool.inputSchema.safeParse({ page_id: "p1" }).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(getPageStateTool.inputSchema.safeParse({ document_id: "", page_id: "p1" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(getPageStateTool.inputSchema.safeParse({ document_id: "   ", page_id: "p1" }).success).toBe(false);
+  });
+
   it("requires page_id", () => {
     expect(getPageStateTool.inputSchema.safeParse({}).success).toBe(false);
   });
 
-  it("accepts page_id alone", () => {
+  it("accepts page_id with document_id", () => {
     expect(
-      getPageStateTool.inputSchema.safeParse({ page_id: "p1" }).success,
+      getPageStateTool.inputSchema.safeParse({ document_id: "doc-1", page_id: "p1" }).success,
     ).toBe(true);
   });
 
@@ -69,7 +81,7 @@ describe("get_page_state tool", () => {
       },
     });
 
-    await getPageStateTool.handler({ page_id: "p1" });
+    await getPageStateTool.handler({ document_id: "doc-1", page_id: "p1" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("findPageById");
@@ -95,7 +107,7 @@ describe("get_page_state tool", () => {
       },
     });
 
-    const env = await getPageStateTool.handler({ page_id: "p1" });
+    const env = await getPageStateTool.handler({ document_id: "doc-1", page_id: "p1" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -112,7 +124,7 @@ describe("get_page_state tool", () => {
       error: { kind: "not_found", message: "page not found", entity: "page", id: "p99" },
     });
 
-    const env = await getPageStateTool.handler({ page_id: "p99" });
+    const env = await getPageStateTool.handler({ document_id: "doc-1", page_id: "p99" });
 
     expectFailure(env);
     expect(env.error.kind).toBe("not_found");
@@ -138,7 +150,7 @@ describe("get_page_state – ReadToken guard (GP-T1..T4)", () => {
       },
     });
 
-    const env = await getPageStateTool.handler({ page_id: "p1" });
+    const env = await getPageStateTool.handler({ document_id: "doc-1", page_id: "p1" });
     expect(env.ok).toBe(true);
     expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
   });
@@ -166,7 +178,7 @@ describe("get_page_state – ReadToken guard (GP-T1..T4)", () => {
   // GP-T3: forged token → the real consumeReadToken rejects inside the real wrapExtendScript, sendFn never called
   it("GP-T3: throws and does not call sendFn when token is forged", async () => {
     tamper.mode = "forged";
-    await expect(getPageStateTool.handler({ page_id: "p1" })).rejects.toThrow(
+    await expect(getPageStateTool.handler({ document_id: "doc-1", page_id: "p1" })).rejects.toThrow(
       "read_not_authorized: token not issued by this guard",
     );
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
@@ -176,7 +188,7 @@ describe("get_page_state – ReadToken guard (GP-T1..T4)", () => {
   it("GP-T4: throws and does not call sendFn when documentId mismatches issued token", async () => {
     tamper.mode = "wrong_doc";
     await expect(
-      getPageStateTool.handler({ page_id: "p1", document_id: "doc-A" }),
+      getPageStateTool.handler({ document_id: "doc-A", page_id: "p1" }),
     ).rejects.toThrow("read_not_authorized: documentId mismatch");
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
   });

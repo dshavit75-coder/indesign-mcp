@@ -296,7 +296,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
 
     mockPublishPdfPart.mockResolvedValueOnce({ ok: true } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -340,7 +340,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
       reason: "not_owned",
     } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -356,7 +356,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
   it("P-pre-query-fail: pre-query not_found → error propagated, no write attempted", async () => {
     mockPreQueryNotFound();
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -374,7 +374,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
     // lstatSync succeeds (file exists) — simulates crashed export leftover
     mockLstatSize(1024);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -399,7 +399,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
       message: "InDesign not available",
     } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -429,7 +429,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
       message: "transport layer error",
     } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -452,7 +452,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
       result: { ok: false, error: { kind: "script_error", message: "InDesign script threw" } },
     } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     // Handler must surface the transport failure, not succeed with undefined page_count
     expect(result.ok).toBe(false);
@@ -480,7 +480,7 @@ describe("export_pdf — write-guard integration (Stage 4)", () => {
       message: GUARD_EEXIST_MESSAGE,
     } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -512,7 +512,7 @@ describe("export_pdf — exceptions around sendWriteScript (PX1b, PX1c)", () => 
 
     let caught: unknown;
     try {
-      await exportPdfTool.handler({ path: FINAL_PATH });
+      await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
     } catch (err) {
       caught = err;
     }
@@ -534,7 +534,7 @@ describe("export_pdf — exceptions around sendWriteScript (PX1b, PX1c)", () => 
       throw new Error("after send");
     }) as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -559,7 +559,7 @@ describe("export_pdf — exceptions around sendWriteScript (PX1b, PX1c)", () => 
       throw new Error("write_not_authorized: capability body mismatch");
     }) as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.kind).toBe("io_error");
@@ -572,7 +572,7 @@ describe("export_pdf — the temporary file must be regular and non-empty (PX2, 
     mockDecisionOk();
     mockLstatPaths({ part: ["absent", spec] });
     mockSendWriteScript.mockResolvedValueOnce(SEND_OK as never);
-    return exportPdfTool.handler({ path: FINAL_PATH });
+    return exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
   }
 
   it("PX2: an empty temporary file is not published; the message says 'empty file', not 'invalid PDF'", async () => {
@@ -628,7 +628,7 @@ describe("export_pdf — publish failure classification (PX5, PX6)", () => {
     mockLstatPaths({ part: ["absent", 500, 500], final });
     mockSendWriteScript.mockResolvedValueOnce(SEND_OK as never);
     mockPublishPdfPart.mockResolvedValueOnce({ ok: false, reason: "uncertain", message } as never);
-    return exportPdfTool.handler({ path: FINAL_PATH });
+    return exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
   }
 
   it("PX5a: a link failure that is not EEXIST, target absent → io_error with the guard's message; not 'blocked'", async () => {
@@ -685,7 +685,7 @@ describe("export_pdf — nothing is deleted by this tool (PX8)", () => {
         { ok: false, kind: "io_error", reason: "uncertain", message: "transport layer error" } as never,
       );
 
-      const result = await exportPdfTool.handler({ path: FINAL_PATH });
+      const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.message).toMatch(shows);
@@ -700,7 +700,7 @@ describe("export_pdf — nothing is deleted by this tool (PX8)", () => {
         { ok: true, result: { ok: false, error: { kind: "timeout", message: "timed out" } } } as never,
       );
 
-      const result = await exportPdfTool.handler({ path: FINAL_PATH });
+      const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -717,7 +717,7 @@ describe("export_pdf — nothing is deleted by this tool (PX8)", () => {
       mockSendWriteScript.mockResolvedValueOnce(SEND_OK as never);
       mockPublishPdfPart.mockResolvedValueOnce({ ok: false, reason: "uncertain", message: "link failed: EIO" } as never);
 
-      const result = await exportPdfTool.handler({ path: FINAL_PATH });
+      const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.message).toMatch(shows);
@@ -731,7 +731,7 @@ describe("export_pdf — nothing is deleted by this tool (PX8)", () => {
         mockLstatPaths({ part: ["absent", spec] });
         mockSendWriteScript.mockResolvedValueOnce(SEND_OK as never);
 
-        const result = await exportPdfTool.handler({ path: FINAL_PATH });
+        const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.error.message).toMatch(shows);
@@ -770,7 +770,7 @@ describe("export_pdf — InDesign envelope failures keep kind and fields (PX9, P
       result: { ok: false, error: { kind: "script_error", message: "m", entity: "document", id: "77" } },
     } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -789,7 +789,7 @@ describe("export_pdf — InDesign envelope failures keep kind and fields (PX9, P
     const envelope = { ok: false, error: { kind: "script_error", message: "InDesign script threw" } };
     mockSendWriteScript.mockResolvedValueOnce({ ok: true, result: envelope } as never);
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result).toEqual(envelope);
   });
@@ -802,7 +802,7 @@ describe("export_pdf — warnings after a successful publish (PX11)", () => {
     mockLstatPaths({ part: ["absent", 4096, afterPublish] });
     mockSendWriteScript.mockResolvedValueOnce(SEND_OK as never);
     mockPublishPdfPart.mockResolvedValueOnce({ ok: true } as never);
-    return exportPdfTool.handler({ path: FINAL_PATH });
+    return exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
   }
 
   it("PX11a: something is still at the temporary path → success with a warning that states only what is observed", async () => {
@@ -853,7 +853,7 @@ describe("export_pdf — an existing PDF is refused before anything is sent (PX1
     const looked: string[] = [];
     _lstatImpl = (p: string) => { looked.push(p); return statOf("absent"); };
 
-    const result = await exportPdfTool.handler({ path: FINAL_PATH });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: FINAL_PATH });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.kind).toBe("pdf_replace_blocked");
@@ -939,7 +939,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
       // the wrapper is handed a different body than the one the capability was issued for
       realWg.sendWriteScript(d, req, send, (body, cap, op) => wrap(body + " ", cap, op))) as never);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -957,7 +957,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     mockPreQueryOk();
     mockDecideWrite.mockImplementationOnce(((...a: Parameters<typeof realWg.decideWrite>) => realWg.decideWrite(...a)) as never);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -982,7 +982,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     mockSendWriteScript.mockImplementationOnce(((...[d, req, send, wrap]: Parameters<typeof realWg.sendWriteScript>) =>
       realWg.sendWriteScript(d, { ...req, scriptOpts: { bodyFn: () => "return 1;" } }, send, wrap)) as never);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -996,7 +996,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
   it("PX12b: a competitor creates the target during the export → pdf_replace_blocked from the REAL guard message; target intact, temporary file kept, nothing deleted", async () => {
     const { finalPath, seen } = arrange("race.pdf", (_part, fin) => realFs.writeFileSync(fin, "COMPETITOR"));
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1016,7 +1016,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     del.linkFault = Object.assign(new Error("EPERM: operation not permitted, link"), { code: "EPERM" });
     const { finalPath, seen } = arrange("perm.pdf");
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1034,7 +1034,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
   it("PX13: a successful publish with the REAL guard → the target has the exported content and the temporary NAME is gone (removed by publishPdfPart, not by this tool)", async () => {
     const { finalPath, seen } = arrange("ok.pdf");
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -1091,7 +1091,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
   ])("%s → io_error, nothing published or removed, the record stays uncertain (never owned)", async (_n, finalName, make, fragment, partStillThere) => {
     const { finalPath, seen } = arrangeR1(finalName, (p) => { make(p); return okEnvelope(p); });
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1110,7 +1110,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
   it("R1-4: a failure envelope from the InDesign script (not an exception) → kind kept, the record stays uncertain", async () => {
     const { finalPath } = arrangeR1("envfail.pdf", () => ({ ok: false, error: { kind: "script_error", message: "x" } }));
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1126,7 +1126,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
   it("R1-5: the transport throws (the REAL guard swallows it) → io_error, not a raw throw, the record stays uncertain", async () => {
     const { finalPath } = arrangeR1("transport.pdf", () => Promise.reject(new Error("osascript died")));
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1143,7 +1143,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     del.linkFault = Object.assign(new Error("EPERM: operation not permitted, link"), { code: "EPERM" });
     const { finalPath, seen } = arrangeR1("perm2.pdf", (p) => { realFs.writeFileSync(p, PDF_BYTES); return okEnvelope(p); });
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1164,7 +1164,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     mockSendWriteScript.mockImplementationOnce(((...[d, req, send, wrap]: Parameters<typeof realWg.sendWriteScript>) =>
       realWg.sendWriteScript(d, req, send, (body, cap, op) => wrap(body + " ", cap, op))) as never);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1184,7 +1184,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     mockSendWriteScript.mockImplementationOnce(((...[d, req, send, wrap]: Parameters<typeof realWg.sendWriteScript>) =>
       realWg.sendWriteScript(d, { ...req, scriptOpts: { bodyFn: () => "return 1;" } }, send, wrap)) as never);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1201,7 +1201,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath } = arrangeR1("exists.pdf", (p) => okEnvelope(p));
     realFs.writeFileSync(finalPath, "EXISTING");
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1223,7 +1223,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath } = arrangeR1("success2.pdf", (p) => { realFs.writeFileSync(p, PDF_BYTES); return okEnvelope(p); },
       (f) => { atEntry = realWg.registryGet(f); });
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(atEntry).toEqual({ state: "uncertain", documentId: DOC_ID, tool: "export_pdf", fingerprint: ZERO_FP });
@@ -1242,7 +1242,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
       return okEnvelope(p);
     });
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(during).toEqual({ state: "pending", documentId: DOC_ID, tool: "export_pdf", fingerprint: ZERO_FP });
@@ -1272,7 +1272,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const other = replacement();
     del.afterLink = () => realWg.registrySet(finalPath, other);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
@@ -1283,7 +1283,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath } = arrangeR1("e2.pdf", okExport);
     del.afterLink = () => realWg.registryReset();
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
@@ -1295,7 +1295,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const other = replacement();
     del.beforeUnlink = () => realWg.registrySet(finalPath, other);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(realWg.registryGet(finalPath)).toBe(other);
@@ -1305,7 +1305,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("e5.pdf", okExport);
     del.unlinkFault = eacces();
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(realFs.readFileSync(finalPath, "utf8")).toBe(PDF_BYTES);
@@ -1320,7 +1320,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("e7a.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     failFinalAfterLink(finalPath);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true); // precondition: the injected failure really fired
     expect(result.ok).toBe(false);
@@ -1340,7 +1340,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath } = arrangeR1("e7b.pdf", okExport, (f) => { realWg.registrySet(f, foreign); });
     failFinalAfterLink(finalPath);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(false);
@@ -1354,7 +1354,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     failFinalAfterLink(finalPath);
     del.afterLink = () => realWg.registrySet(finalPath, other);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(false);
@@ -1368,7 +1368,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     del.beforeUnlink = () => realWg.registrySet(finalPath, other);
     del.unlinkFault = eacces();
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(realWg.registryGet(finalPath)).toBe(other);
@@ -1399,7 +1399,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s4.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.beforeLink = () => swapForForeign(seen.partPath!);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1419,7 +1419,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("l2.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => swapForForeign(seen.partPath!);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(warningsOf(result)?.[0]).toContain("A file is present at the temporary path (7 bytes)");
@@ -1437,7 +1437,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     let contentAtRemoval: string | undefined;
     del.beforeUnlink = () => { swapForForeign(seen.partPath!); contentAtRemoval = realFs.readFileSync(seen.partPath!, "utf8"); };
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(contentAtRemoval).toBe("FOREIGN"); // what unlinkSync was about to remove is NOT the file InDesign wrote
     expect(realFs.existsSync(seen.partPath!)).toBe(false); // ...and it is gone
@@ -1453,7 +1453,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s8.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => realFs.unlinkSync(seen.partPath!);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect("warnings" in result).toBe(false);
@@ -1467,7 +1467,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s9a.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => failNthLstatAfterLink(seen.partPath!, 1, true); // every later lstat of the temporary name fails
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(true);
@@ -1483,7 +1483,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s9b.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => failNthLstatAfterLink(seen.partPath!, 1);
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(true);
@@ -1497,7 +1497,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s10.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => failNthLstatAfterLink(finalPath, 2); // the 1st check passes, the one after the removal fails
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(false);
@@ -1518,7 +1518,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s11.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => { realFs.unlinkSync(seen.partPath!); realFs.mkdirSync(seen.partPath!); };
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(result.ok).toBe(true);
     expect(warningsOf(result)?.[0]).toContain("Something that is not a regular file is present at the temporary path");
@@ -1549,7 +1549,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("d1.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => patchNthLstatAfterLink(finalPath, 1, (st) => ({ dev: st.dev + 1 }));
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(false);
@@ -1564,7 +1564,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("d2.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => patchNthLstatAfterLink(seen.partPath!, 1, (st) => ({ dev: st.dev + 1 })); // 1st = the check inside publishPdfPart
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(true);
@@ -1579,7 +1579,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("s12.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => patchNthLstatAfterLink(finalPath, 2, (st) => ({ ino: st.ino + 1 })); // 1st check passes, the one after the removal differs
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(false);
@@ -1599,7 +1599,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     const { finalPath, seen } = arrangeR1("d3.pdf", okExport, (f) => { entry = realWg.registryGet(f); });
     del.afterLink = () => patchNthLstatAfterLink(finalPath, 2, (st) => ({ dev: st.dev + 1 }));
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(del.injected).toBe(true);
     expect(result.ok).toBe(false);
@@ -1638,7 +1638,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
     };
     del.beforeUnlink = () => { yieldedAtRemoval = yielded; };
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(probed).toBe(true); // precondition: the probe was set
     expect(yieldedAtRemoval).toBeDefined(); // precondition: the removal really ran
@@ -1668,7 +1668,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
       }) as never;
     };
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(calls).toBeGreaterThanOrEqual(2); // precondition: the probe was set
     expect(yieldedAtWrite).toBeDefined(); // precondition: the registry write really happened
@@ -1695,7 +1695,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
       }) as never;
     };
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(probed).toBe(true); // precondition: the probe was set
     expect(yieldedAtPartCheck).toBeDefined(); // precondition: the check of the temporary name was reached
@@ -1722,7 +1722,7 @@ describe("export_pdf — with the REAL write-guard on real files", () => {
       }) as never;
     };
 
-    const result = await exportPdfTool.handler({ path: finalPath });
+    const result = await exportPdfTool.handler({ document_id: DOC_ID, path: finalPath });
 
     expect(removalSeen).toBe(true); // precondition: the removal ran, so the probe was set
     expect(yieldedAtVerification).toBeDefined(); // precondition: the verification after the removal was reached

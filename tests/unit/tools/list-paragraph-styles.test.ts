@@ -50,11 +50,19 @@ describe("list_paragraph_styles tool", () => {
 
   // --- Schema validation ---
 
-  it("accepts empty input", () => {
-    expect(listParagraphStylesTool.inputSchema.safeParse({}).success).toBe(true);
+  it("rejects missing document_id", () => {
+    expect(listParagraphStylesTool.inputSchema.safeParse({}).success).toBe(false);
   });
 
-  it("accepts optional document_id", () => {
+  it("rejects empty document_id", () => {
+    expect(listParagraphStylesTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(listParagraphStylesTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
+  it("accepts valid document_id", () => {
     expect(
       listParagraphStylesTool.inputSchema.safeParse({ document_id: "doc1" }).success,
     ).toBe(true);
@@ -74,7 +82,7 @@ describe("list_paragraph_styles tool", () => {
       result: { paragraph_styles: [] },
     });
 
-    await listParagraphStylesTool.handler({});
+    await listParagraphStylesTool.handler({ document_id: "doc-xyz" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     expect(arg.scriptTemplate).toContain("paragraphStyles");
@@ -88,7 +96,7 @@ describe("list_paragraph_styles tool", () => {
       result: { paragraph_styles: [] },
     });
 
-    await listParagraphStylesTool.handler({});
+    await listParagraphStylesTool.handler({ document_id: "doc-xyz" });
 
     const [arg] = lastCall(vi.mocked(runScriptWithResultFile));
     // The script should filter out styles whose name starts with "["
@@ -109,7 +117,7 @@ describe("list_paragraph_styles tool", () => {
       },
     });
 
-    const env = await listParagraphStylesTool.handler({});
+    const env = await listParagraphStylesTool.handler({ document_id: "doc-xyz" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -127,7 +135,7 @@ describe("list_paragraph_styles tool", () => {
       result: { paragraph_styles: [] },
     });
 
-    const env = await listParagraphStylesTool.handler({});
+    const env = await listParagraphStylesTool.handler({ document_id: "doc-xyz" });
 
     expect(env.ok).toBe(true);
     if (!env.ok) return;
@@ -142,7 +150,7 @@ describe("list_paragraph_styles tool", () => {
       result: { paragraph_styles: [] },
     });
 
-    await listParagraphStylesTool.handler({});
+    await listParagraphStylesTool.handler({ document_id: "doc-xyz" });
 
     expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledTimes(1);
   });
@@ -162,7 +170,7 @@ describe("list_paragraph_styles tool", () => {
 
   it("PS-T3: forged token — real wrapExtendScript rejects, sendFn is NOT called", async () => {
     tamper.mode = "forged";
-    await expect(listParagraphStylesTool.handler({})).rejects.toThrow(
+    await expect(listParagraphStylesTool.handler({ document_id: "doc-xyz" })).rejects.toThrow(
       "read_not_authorized: token not issued by this guard",
     );
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
@@ -178,7 +186,7 @@ describe("list_paragraph_styles tool", () => {
 
   it("PS-T5: token replay — second use of the consumed token is rejected, sendFn is NOT called", async () => {
     tamper.mode = "replay";
-    await expect(listParagraphStylesTool.handler({})).rejects.toThrow(
+    await expect(listParagraphStylesTool.handler({ document_id: "doc-xyz" })).rejects.toThrow(
       "read_not_authorized: token not issued by this guard",
     );
     expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();

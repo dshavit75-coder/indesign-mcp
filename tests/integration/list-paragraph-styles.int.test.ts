@@ -12,15 +12,17 @@ integrationGate("list_paragraph_styles (integration)", () => {
   it(
     "returns defined styles, excludes internal [ styles",
     async () => {
-      await createDocumentTool.handler({
+      const create1 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create1.ok) return;
+      const docId1 = create1.result!.document_id;
 
-      await defineParagraphStyleTool.handler({ name: "Body", size_pt: 11, leading_pt: 14 });
-      await defineParagraphStyleTool.handler({ name: "Headline", size_pt: 36 });
+      await defineParagraphStyleTool.handler({ document_id: docId1, name: "Body", size_pt: 11, leading_pt: 14 });
+      await defineParagraphStyleTool.handler({ document_id: docId1, name: "Headline", size_pt: 36 });
 
-      const env = await listParagraphStylesTool.handler({});
+      const env = await listParagraphStylesTool.handler({ document_id: docId1 });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
 
@@ -45,18 +47,21 @@ integrationGate("list_paragraph_styles (integration)", () => {
   it(
     "returns color_swatch_name when style has a fill colour",
     async () => {
-      await createDocumentTool.handler({
+      const create2 = await createDocumentTool.handler({
         preset: "A4",
         margins_mm: { top: 12, bottom: 12, left: 12, right: 12 },
       });
+      if (!create2.ok) return;
+      const docId2 = create2.result!.document_id;
 
       await defineParagraphStyleTool.handler({
+        document_id: docId2,
         name: "Coloured",
         size_pt: 12,
         color_hex: "#FF6600",
       });
 
-      const env = await listParagraphStylesTool.handler({});
+      const env = await listParagraphStylesTool.handler({ document_id: docId2 });
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       const coloured = env.result!.paragraph_styles.find((s) => s.name === "Coloured");

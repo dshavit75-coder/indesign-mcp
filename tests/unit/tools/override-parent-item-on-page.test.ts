@@ -21,15 +21,29 @@ describe("override_parent_item_on_page tool", () => {
   it("accepts valid input with page_id and parent_item_id", () => {
     expect(
       overrideParentItemOnPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "pg1",
         parent_item_id: "fi1",
       }).success,
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(overrideParentItemOnPageTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(overrideParentItemOnPageTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(overrideParentItemOnPageTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects missing page_id", () => {
     expect(
       overrideParentItemOnPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         parent_item_id: "fi1",
       }).success,
     ).toBe(false);
@@ -38,6 +52,7 @@ describe("override_parent_item_on_page tool", () => {
   it("rejects missing parent_item_id", () => {
     expect(
       overrideParentItemOnPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "pg1",
       }).success,
     ).toBe(false);
@@ -46,6 +61,7 @@ describe("override_parent_item_on_page tool", () => {
   it("rejects empty parent_item_id", () => {
     expect(
       overrideParentItemOnPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "pg1",
         parent_item_id: "",
       }).success,
@@ -64,6 +80,7 @@ describe("override_parent_item_on_page tool", () => {
     });
 
     await overrideParentItemOnPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_item_id: "fi1",
     });
@@ -88,6 +105,7 @@ describe("override_parent_item_on_page tool", () => {
     });
 
     await overrideParentItemOnPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_item_id: "fi1",
     });
@@ -109,6 +127,7 @@ describe("override_parent_item_on_page tool", () => {
     });
 
     const env = await overrideParentItemOnPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_item_id: "fi1",
     });
@@ -137,6 +156,7 @@ describe("override_parent_item_on_page tool", () => {
     });
 
     const env = await overrideParentItemOnPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_item_id: "fi1",
     });
@@ -158,6 +178,7 @@ describe("override_parent_item_on_page tool", () => {
     });
 
     const env = await overrideParentItemOnPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_item_id: "fi2",
     });
@@ -173,6 +194,7 @@ describe("override_parent_item_on_page tool", () => {
     });
 
     const env = await overrideParentItemOnPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_item_id: "fi99",
     });

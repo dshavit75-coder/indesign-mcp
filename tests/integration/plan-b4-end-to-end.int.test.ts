@@ -79,7 +79,7 @@ integrationGate("Plan B4 end-to-end (integration)", () => {
         expect(verso!.left).toBeCloseTo(15, 1);
         expect(verso!.right).toBeCloseTo(25, 1);
 
-        const createParent = await createParentPageTool.handler({ base_name: "Footer" });
+        const createParent = await createParentPageTool.handler({ document_id: createDoc.result!.document_id, base_name: "Footer" });
         expect(createParent.ok).toBe(true);
         if (!createParent.ok) return;
         const parentName = createParent.result!.parent_name;
@@ -87,6 +87,7 @@ integrationGate("Plan B4 end-to-end (integration)", () => {
         expect(parentName).toMatch(/Footer/);
 
         const createFrame = await createTextFrameTool.handler({
+          document_id: createDoc.result!.document_id,
           page_id: masterPageId,
           bounds_mm: { x: 10, y: 278, width: 190, height: 10 },
         });
@@ -95,6 +96,7 @@ integrationGate("Plan B4 end-to-end (integration)", () => {
         const footerFrameId = createFrame.result!.frame_id;
 
         const insertMarker = await insertPageNumberMarkerTool.handler({
+          document_id: createDoc.result!.document_id,
           frame_id: footerFrameId,
           position: "end",
         });
@@ -102,6 +104,7 @@ integrationGate("Plan B4 end-to-end (integration)", () => {
 
         for (const pageId of docPageIds) {
           const apply = await applyParentToPageTool.handler({
+            document_id: createDoc.result!.document_id,
             page_id: pageId,
             parent_name: parentName,
           });
@@ -110,7 +113,7 @@ integrationGate("Plan B4 end-to-end (integration)", () => {
           expect(apply.document_state_delta?.changed_pages?.[0].applied_parent_name).toBe(parentName);
         }
 
-        const exportEnv = await exportPdfTool.handler({ path: pdfPath });
+        const exportEnv = await exportPdfTool.handler({ document_id: createDoc.result!.document_id, path: pdfPath });
         expect(exportEnv.ok).toBe(true);
         expect(existsSync(pdfPath)).toBe(true);
         expect(statSync(pdfPath).size).toBeGreaterThan(0);

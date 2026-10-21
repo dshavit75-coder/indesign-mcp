@@ -21,15 +21,29 @@ describe("create_image_frame tool", () => {
   it("accepts minimal valid input", () => {
     expect(
       createImageFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
       }).success,
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(createImageFrameTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(createImageFrameTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(createImageFrameTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects zero or negative width/height", () => {
     expect(
       createImageFrameTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         bounds_mm: { x: 10, y: 10, width: 0, height: 50 },
       }).success,
@@ -43,6 +57,7 @@ describe("create_image_frame tool", () => {
     });
 
     await createImageFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 20, width: 100, height: 50 },
     });
@@ -62,6 +77,7 @@ describe("create_image_frame tool", () => {
     });
 
     const env = await createImageFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
     });
@@ -81,6 +97,7 @@ describe("create_image_frame tool", () => {
     });
 
     const env = await createImageFrameTool.handler({
+      document_id: "doc-1",
       page_id: "p99",
       bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
     });

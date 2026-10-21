@@ -21,23 +21,27 @@ integrationGate("apply_paragraph_style (integration)", () => {
       if (!create.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 100 },
       });
       if (!frame.ok) return;
 
       await setTextTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         text: "First paragraph.\nSecond paragraph.\nThird paragraph.",
       });
 
       await defineParagraphStyleTool.handler({
+        document_id: create.result!.document_id,
         name: "Body",
         size_pt: 11,
         leading_pt: 14,
       });
 
       const env = await applyParagraphStyleTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         style_name: "Body",
       });
@@ -59,12 +63,14 @@ integrationGate("apply_paragraph_style (integration)", () => {
       if (!create.ok) return;
 
       const frame = await createTextFrameTool.handler({
+        document_id: create.result!.document_id,
         page_id: create.result!.page_ids[0],
         bounds_mm: { x: 12, y: 12, width: 186, height: 50 },
       });
       if (!frame.ok) return;
 
       const env = await applyParagraphStyleTool.handler({
+        document_id: create.result!.document_id,
         frame_id: frame.result!.frame_id,
         style_name: "DoesNotExist",
       });

@@ -21,15 +21,29 @@ describe("apply_parent_to_page tool", () => {
   it("accepts valid input with page_id and parent_name", () => {
     expect(
       applyParentToPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "pg1",
         parent_name: "A-Footer",
       }).success,
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(applyParentToPageTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(applyParentToPageTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(applyParentToPageTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects missing page_id", () => {
     expect(
       applyParentToPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         parent_name: "A-Footer",
       }).success,
     ).toBe(false);
@@ -38,6 +52,7 @@ describe("apply_parent_to_page tool", () => {
   it("rejects missing parent_name", () => {
     expect(
       applyParentToPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "pg1",
       }).success,
     ).toBe(false);
@@ -46,6 +61,7 @@ describe("apply_parent_to_page tool", () => {
   it("rejects empty page_id", () => {
     expect(
       applyParentToPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "",
         parent_name: "A-Footer",
       }).success,
@@ -55,6 +71,7 @@ describe("apply_parent_to_page tool", () => {
   it("rejects empty parent_name", () => {
     expect(
       applyParentToPageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "pg1",
         parent_name: "",
       }).success,
@@ -68,6 +85,7 @@ describe("apply_parent_to_page tool", () => {
     });
 
     await applyParentToPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_name: "A-Footer",
     });
@@ -87,6 +105,7 @@ describe("apply_parent_to_page tool", () => {
     });
 
     const env = await applyParentToPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_name: "A-Footer",
     });
@@ -111,6 +130,7 @@ describe("apply_parent_to_page tool", () => {
     });
 
     const env = await applyParentToPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg1",
       parent_name: "Z-Missing",
     });
@@ -127,6 +147,7 @@ describe("apply_parent_to_page tool", () => {
     });
 
     const env = await applyParentToPageTool.handler({
+      document_id: "doc-1",
       page_id: "pg99",
       parent_name: "A-Footer",
     });

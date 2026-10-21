@@ -21,12 +21,24 @@ describe("place_image tool", () => {
     expect(placeImageTool.description.length).toBeGreaterThan(0);
   });
 
+  it("rejects missing document_id", () => {
+    expect(placeImageTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(placeImageTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(placeImageTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("requires frame_id and image_path", () => {
     expect(
-      placeImageTool.inputSchema.safeParse({ image_path: "/x" }).success,
+      placeImageTool.inputSchema.safeParse({ document_id: "doc-1", image_path: "/x" }).success,
     ).toBe(false);
     expect(
-      placeImageTool.inputSchema.safeParse({ frame_id: "f1" }).success,
+      placeImageTool.inputSchema.safeParse({ document_id: "doc-1", frame_id: "f1" }).success,
     ).toBe(false);
   });
 
@@ -39,6 +51,7 @@ describe("place_image tool", () => {
     ] as const) {
       expect(
         placeImageTool.inputSchema.safeParse({
+          document_id: "doc-1",
           frame_id: "f1",
           image_path: "/img.png",
           fit,
@@ -50,6 +63,7 @@ describe("place_image tool", () => {
   it("rejects an invalid fit value", () => {
     expect(
       placeImageTool.inputSchema.safeParse({
+        document_id: "doc-1",
         frame_id: "f1",
         image_path: "/img.png",
         fit: "stretch",
@@ -59,6 +73,7 @@ describe("place_image tool", () => {
 
   it("returns io_error before dispatching when image file does not exist", async () => {
     const env = await placeImageTool.handler({
+      document_id: "doc-1",
       frame_id: "f1",
       image_path: "/nonexistent/path/image.png",
     });
@@ -82,6 +97,7 @@ describe("place_image tool", () => {
       });
 
       await placeImageTool.handler({
+        document_id: "doc-1",
         frame_id: "f1",
         image_path: imagePath,
         fit: "fit_proportionally",
@@ -108,6 +124,7 @@ describe("place_image tool", () => {
       });
 
       const env = await placeImageTool.handler({
+        document_id: "doc-1",
         frame_id: "f1",
         image_path: imagePath,
       });

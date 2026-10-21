@@ -21,6 +21,7 @@ describe("create_line tool", () => {
   it("accepts minimal valid input (page_id + start + end)", () => {
     expect(
       createLineTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         start_mm: { x: 12, y: 12 },
         end_mm: { x: 198, y: 12 },
@@ -28,9 +29,22 @@ describe("create_line tool", () => {
     ).toBe(true);
   });
 
+  it("rejects missing document_id", () => {
+    expect(createLineTool.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects empty document_id", () => {
+    expect(createLineTool.inputSchema.safeParse({ document_id: "" }).success).toBe(false);
+  });
+
+  it("rejects whitespace-only document_id", () => {
+    expect(createLineTool.inputSchema.safeParse({ document_id: "   " }).success).toBe(false);
+  });
+
   it("rejects negative coordinates", () => {
     expect(
       createLineTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         start_mm: { x: -1, y: 12 },
         end_mm: { x: 198, y: 12 },
@@ -41,6 +55,7 @@ describe("create_line tool", () => {
   it("rejects invalid stroke_hex", () => {
     expect(
       createLineTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         start_mm: { x: 0, y: 0 },
         end_mm: { x: 100, y: 0 },
@@ -52,6 +67,7 @@ describe("create_line tool", () => {
   it("rejects stroke_weight_pt <= 0", () => {
     expect(
       createLineTool.inputSchema.safeParse({
+        document_id: "doc-1",
         page_id: "p1",
         start_mm: { x: 0, y: 0 },
         end_mm: { x: 100, y: 0 },
@@ -67,6 +83,7 @@ describe("create_line tool", () => {
     });
 
     await createLineTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       start_mm: { x: 12, y: 12 },
       end_mm: { x: 198, y: 12 },
@@ -87,6 +104,7 @@ describe("create_line tool", () => {
     });
 
     const env = await createLineTool.handler({
+      document_id: "doc-1",
       page_id: "p1",
       start_mm: { x: 0, y: 0 },
       end_mm: { x: 100, y: 0 },
@@ -111,6 +129,7 @@ describe("create_line tool", () => {
     });
 
     const env = await createLineTool.handler({
+      document_id: "doc-1",
       page_id: "p99",
       start_mm: { x: 0, y: 0 },
       end_mm: { x: 100, y: 0 },

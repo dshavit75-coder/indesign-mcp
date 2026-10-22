@@ -6,6 +6,7 @@ import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 import { resolveUserPath } from "../path-utils.js";
 import { fail, ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const InputSchema = z
   .object({
@@ -82,11 +83,19 @@ export const placeImageTool = defineTool<Input, Result>({
       return fail("io_error", `image file not found: ${absolutePath}`);
     }
 
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input, absolutePath)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input, absolutePath),
+      (body, tok, documentId) =>
+        wrapExtendScript(body, { _mutateToken: tok, documentId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "place_image",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

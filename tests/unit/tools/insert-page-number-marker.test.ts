@@ -163,3 +163,91 @@ describe("insert_page_number_marker tool", () => {
     expect(env.error.kind).toBe("not_found");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage B9-S5 tamper tests: IPNM-T1 – IPNM-T5
+// ---------------------------------------------------------------------------
+const tamperIPNM = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperIPNM.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperIPNM.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperIPNM.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperIPNM.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperIPNM.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("insert_page_number_marker — Stage B9-S5 tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    frame_id: "f1",
+  };
+
+  beforeEach(() => {
+    tamperIPNM.mode = "passthrough";
+    tamperIPNM.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("IPNM-T2: forged token → throws; sendFn not called", async () => {
+    tamperIPNM.mode = "forged";
+    await expect(insertPageNumberMarkerTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("IPNM-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperIPNM.mode = "replay";
+    await expect(insertPageNumberMarkerTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperIPNM.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("IPNM-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperIPNM.mode = "wrong_doc";
+    await expect(insertPageNumberMarkerTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("IPNM-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperIPNM.mode = "body_swap";
+    await expect(insertPageNumberMarkerTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("IPNM-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { frame_id: "f1", inserted_at: "end" },
+    });
+    await insertPageNumberMarkerTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+});

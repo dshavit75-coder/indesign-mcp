@@ -4,6 +4,7 @@ import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findPageById } from "../script-helpers.js";
 import { ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const AfterPageId = z.object({ after_page_id: z.string() }).strict();
 const BeforePageId = z.object({ before_page_id: z.string() }).strict();
@@ -76,12 +77,19 @@ export const addPageTool = defineTool<Input, Result>({
     "Adds a single page to an InDesign document. Defaults to appending at the end of the active document. Returns the new page ID and its position.",
   inputSchema: InputSchema,
   async handler(input) {
-    const body = buildScriptBody(input);
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(body),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, documentId) =>
+        wrapExtendScript(body, { _mutateToken: tok, documentId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "add_page",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

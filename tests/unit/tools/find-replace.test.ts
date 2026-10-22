@@ -230,3 +230,92 @@ describe("find_replace tool", () => {
     expect(env.document_state_delta?.changed_frames).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage B9-S5 tamper tests: FR-T1 – FR-T5
+// ---------------------------------------------------------------------------
+const tamperFR = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperFR.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperFR.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperFR.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperFR.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperFR.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("find_replace — Stage B9-S5 tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    find: "people",
+    replace: "individuals",
+  };
+
+  beforeEach(() => {
+    tamperFR.mode = "passthrough";
+    tamperFR.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("FR-T2: forged token → throws; sendFn not called", async () => {
+    tamperFR.mode = "forged";
+    await expect(findReplaceTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("FR-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperFR.mode = "replay";
+    await expect(findReplaceTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperFR.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("FR-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperFR.mode = "wrong_doc";
+    await expect(findReplaceTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("FR-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperFR.mode = "body_swap";
+    await expect(findReplaceTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("FR-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { matches_changed: 1, scope: "document", mode: "literal" },
+    });
+    await findReplaceTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+});

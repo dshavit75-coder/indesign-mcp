@@ -4,6 +4,7 @@ import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 import { ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const InputSchema = z
   .object({
@@ -63,11 +64,19 @@ export const insertPageNumberMarkerTool = defineTool<Input, Result>({
     "Inserts an auto-page-number marker (SpecialCharacters.AUTO_PAGE_NUMBER) into a text frame. The marker renders as the current page number. Specify position \"start\" or \"end\" (default \"end\").",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, documentId) =>
+        wrapExtendScript(body, { _mutateToken: tok, documentId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "insert_page_number_marker",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

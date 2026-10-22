@@ -4,6 +4,7 @@ import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 import { ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const InputSchema = z
   .object({
@@ -67,11 +68,19 @@ export const threadTextFramesTool = defineTool<Input, Result>({
     "Links two text frames into a single story so that text flows from the source frame into the target frame. If the frames are already threaded in this order, the call is a no-op. Note: if the target frame has existing content, it will be merged into the source story. Returns the source frame ID, target frame ID, and total story character count after threading.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, documentId) =>
+        wrapExtendScript(body, { _mutateToken: tok, documentId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "thread_text_frames",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

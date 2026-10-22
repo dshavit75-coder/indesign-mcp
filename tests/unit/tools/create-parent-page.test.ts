@@ -153,3 +153,91 @@ describe("create_parent_page tool", () => {
     expect(env.error.kind).toBe("script_error");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage 7C tamper tests: CPP-T1 – CPP-T5
+// ---------------------------------------------------------------------------
+const tamperCPP = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperCPP.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperCPP.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperCPP.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperCPP.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperCPP.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("create_parent_page — Stage 7C tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    base_name: "Footer",
+  };
+
+  beforeEach(() => {
+    tamperCPP.mode = "passthrough";
+    tamperCPP.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("CPP-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { parent_name: "A-Footer", page_ids: ["pp1"], page_count: 1 },
+    });
+    await createParentPageTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+
+  it("CPP-T2: forged token → throws; sendFn not called", async () => {
+    tamperCPP.mode = "forged";
+    await expect(createParentPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CPP-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperCPP.mode = "replay";
+    await expect(createParentPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperCPP.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CPP-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperCPP.mode = "wrong_doc";
+    await expect(createParentPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CPP-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperCPP.mode = "body_swap";
+    await expect(createParentPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+});

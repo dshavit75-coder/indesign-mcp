@@ -4,6 +4,7 @@ import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findPageById } from "../script-helpers.js";
 import { ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const InputSchema = z
   .object({
@@ -67,11 +68,18 @@ export const createImageFrameTool = defineTool<Input, Result>({
     "Creates an empty rectangle on a specified page (bounds in mm), configured so a future place_image call auto-fits the placed graphic. Returns the frame and page IDs.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "create_image_frame",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

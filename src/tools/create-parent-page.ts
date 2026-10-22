@@ -4,6 +4,7 @@ import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById } from "../script-helpers.js";
 import { ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const NAME_PREFIX_RE = /^[A-Z]$/;
 
@@ -83,11 +84,18 @@ export const createParentPageTool = defineTool<Input, Result>({
     'Creates a master spread (parent page) in the active document. Returns the full parent name (e.g. "A-Footer") and the IDs of the master spread\'s pages, which can be used with create_text_frame and other tools to add shared content.',
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "create_parent_page",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

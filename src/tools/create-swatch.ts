@@ -4,6 +4,7 @@ import { runScriptWithResultFile } from "../transport/result-file.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById } from "../script-helpers.js";
 import { ok } from "../errors.js";
+import { sendMutateScript } from "../mutate-guard.js";
 
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 
@@ -96,11 +97,18 @@ export const createSwatchTool = defineTool<Input, Result>({
     "Creates a named RGB swatch from a hex colour value. Unlike auto-swatches created by define_paragraph_style and define_character_style, this swatch uses the exact user-chosen name. Returns the final swatch name (may differ from input when on_collision is 'version'), swatch ID, and collision outcome.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "create_swatch",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     if (r.on_collision_outcome === "updated") {

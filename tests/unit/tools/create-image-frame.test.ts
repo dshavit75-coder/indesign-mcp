@@ -106,3 +106,92 @@ describe("create_image_frame tool", () => {
     expect(env.error.kind).toBe("not_found");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage 7C tamper tests: CIF-T1 – CIF-T5
+// ---------------------------------------------------------------------------
+const tamperCIF = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperCIF.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperCIF.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperCIF.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperCIF.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperCIF.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("create_image_frame — Stage 7C tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    page_id: "p1",
+    bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
+  };
+
+  beforeEach(() => {
+    tamperCIF.mode = "passthrough";
+    tamperCIF.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("CIF-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { frame_id: "f1", page_id: "p1" },
+    });
+    await createImageFrameTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+
+  it("CIF-T2: forged token → throws; sendFn not called", async () => {
+    tamperCIF.mode = "forged";
+    await expect(createImageFrameTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CIF-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperCIF.mode = "replay";
+    await expect(createImageFrameTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperCIF.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CIF-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperCIF.mode = "wrong_doc";
+    await expect(createImageFrameTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CIF-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperCIF.mode = "body_swap";
+    await expect(createImageFrameTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+});

@@ -173,3 +173,92 @@ describe("create_rectangle tool", () => {
     expect(env.error.kind).toBe("not_found");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage 7C tamper tests: CR-T1 – CR-T5
+// ---------------------------------------------------------------------------
+const tamperCR = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperCR.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperCR.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperCR.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperCR.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperCR.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("create_rectangle — Stage 7C tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    page_id: "p1",
+    bounds_mm: { x: 10, y: 10, width: 100, height: 50 },
+  };
+
+  beforeEach(() => {
+    tamperCR.mode = "passthrough";
+    tamperCR.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("CR-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { frame_id: "f1", page_id: "p1" },
+    });
+    await createRectangleTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+
+  it("CR-T2: forged token → throws; sendFn not called", async () => {
+    tamperCR.mode = "forged";
+    await expect(createRectangleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CR-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperCR.mode = "replay";
+    await expect(createRectangleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperCR.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CR-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperCR.mode = "wrong_doc";
+    await expect(createRectangleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("CR-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperCR.mode = "body_swap";
+    await expect(createRectangleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+});

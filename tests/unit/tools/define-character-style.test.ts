@@ -404,3 +404,91 @@ describe("define_character_style tool", () => {
     expect(env.document_state_delta).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage B9-S4 tamper tests: DCS-T1 – DCS-T5
+// ---------------------------------------------------------------------------
+const tamperDCS = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperDCS.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperDCS.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperDCS.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperDCS.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperDCS.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("define_character_style — Stage B9-S4 tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    name: "Accent",
+  };
+
+  beforeEach(() => {
+    tamperDCS.mode = "passthrough";
+    tamperDCS.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("DCS-T2: forged token → throws; sendFn not called", async () => {
+    tamperDCS.mode = "forged";
+    await expect(defineCharacterStyleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("DCS-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperDCS.mode = "replay";
+    await expect(defineCharacterStyleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperDCS.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("DCS-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperDCS.mode = "wrong_doc";
+    await expect(defineCharacterStyleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("DCS-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperDCS.mode = "body_swap";
+    await expect(defineCharacterStyleTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("DCS-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { character_style_name: "Accent", on_collision_outcome: "created" },
+    });
+    await defineCharacterStyleTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+});

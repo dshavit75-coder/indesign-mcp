@@ -157,3 +157,92 @@ describe("apply_parent_to_page tool", () => {
     expect(env.error.entity).toBe("page");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage B9-S4 tamper tests: APTP-T1 – APTP-T5
+// ---------------------------------------------------------------------------
+const tamperAPTP = vi.hoisted(() => ({
+  mode: "passthrough" as
+    | "passthrough" | "forged" | "replay" | "wrong_doc" | "body_swap",
+  firstConsumeOk: 0,
+}));
+
+vi.mock("../../../src/compose.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/compose.js")>();
+  return {
+    ...actual,
+    wrapExtendScript: (...args: Parameters<typeof actual.wrapExtendScript>) => {
+      const [body, opts] = args;
+      if (opts !== undefined && "_mutateToken" in opts) {
+        if (tamperAPTP.mode === "forged")
+          return actual.wrapExtendScript(body, { _mutateToken: {}, documentId: opts.documentId });
+        if (tamperAPTP.mode === "replay") {
+          actual.wrapExtendScript(body, opts);
+          tamperAPTP.firstConsumeOk++;
+          return actual.wrapExtendScript(body, opts);
+        }
+        if (tamperAPTP.mode === "wrong_doc")
+          return actual.wrapExtendScript(body, { _mutateToken: opts._mutateToken, documentId: "doc-EVIL" });
+        if (tamperAPTP.mode === "body_swap")
+          return actual.wrapExtendScript("var evil = 1; return {};", { _mutateToken: opts._mutateToken, documentId: opts.documentId });
+      }
+      return actual.wrapExtendScript(...args);
+    },
+  };
+});
+
+describe("apply_parent_to_page — Stage B9-S4 tamper tests", () => {
+  const validInput = {
+    document_id: "doc-1",
+    page_id: "pg1",
+    parent_name: "A-Master",
+  };
+
+  beforeEach(() => {
+    tamperAPTP.mode = "passthrough";
+    tamperAPTP.firstConsumeOk = 0;
+    vi.mocked(runScriptWithResultFile).mockReset();
+  });
+
+  it("APTP-T2: forged token → throws; sendFn not called", async () => {
+    tamperAPTP.mode = "forged";
+    await expect(applyParentToPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("APTP-T3: replay → first consume succeeds, second rejected; sendFn not called", async () => {
+    tamperAPTP.mode = "replay";
+    await expect(applyParentToPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: token not issued by this guard",
+    );
+    expect(tamperAPTP.firstConsumeOk).toBe(1);
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("APTP-T4: wrong_doc → documentId mismatch → throws; sendFn not called", async () => {
+    tamperAPTP.mode = "wrong_doc";
+    await expect(applyParentToPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: documentId mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("APTP-T5: body_swap → body mismatch → throws; sendFn not called", async () => {
+    tamperAPTP.mode = "body_swap";
+    await expect(applyParentToPageTool.handler(validInput)).rejects.toThrow(
+      "mutate_not_authorized: body mismatch",
+    );
+    expect(vi.mocked(runScriptWithResultFile)).not.toHaveBeenCalled();
+  });
+
+  it("APTP-T1: happy path — sendFn called exactly once when no tamper", async () => {
+    vi.mocked(runScriptWithResultFile).mockResolvedValueOnce({
+      ok: true,
+      result: { page_id: "pg1", parent_name: "A-Master" },
+    });
+    await applyParentToPageTool.handler(validInput);
+    expect(vi.mocked(runScriptWithResultFile)).toHaveBeenCalledOnce();
+  });
+});

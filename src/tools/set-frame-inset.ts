@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
+import { sendMutateScript } from "../mutate-guard.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 import { ok } from "../errors.js";
@@ -74,11 +75,18 @@ export const setFrameInsetTool = defineTool<Input, Result>({
     "Sets per-side inset spacing (padding) on a text frame in millimeters. All four sides must be provided and must be ≥ 0. Returns the frame ID and the confirmed inset values read back from InDesign.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "set_frame_inset",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(

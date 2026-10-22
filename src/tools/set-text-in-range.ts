@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
+import { sendMutateScript } from "../mutate-guard.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 import { ok } from "../errors.js";
@@ -75,11 +76,18 @@ export const setTextInRangeTool = defineTool<Input, Result>({
   async handler(input) {
     // InDesign uses \r as paragraph separator. Normalize CRLF and LF to CR.
     const normalizedText = input.text.replace(/\r\n|\n/g, "\r");
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody({ ...input, text: normalizedText })),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody({ ...input, text: normalizedText }),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "set_text_in_range",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     return ok(r, {

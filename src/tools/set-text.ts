@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
+import { sendMutateScript } from "../mutate-guard.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 
@@ -55,10 +56,17 @@ export const setTextTool = defineTool<Input, Result>({
     // so callers can use natural \n-separated text and get expected paragraph
     // structure.
     const normalizedText = input.text.replace(/\r\n|\n/g, "\r");
-    return runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody({ ...input, text: normalizedText })),
-      resultSchema: ScriptResultSchema,
-    });
+    return sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody({ ...input, text: normalizedText }),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "set_text",
+    );
   },
 });

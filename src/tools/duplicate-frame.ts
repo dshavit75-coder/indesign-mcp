@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./registry.js";
 import { runScriptWithResultFile } from "../transport/result-file.js";
+import { sendMutateScript } from "../mutate-guard.js";
 import { wrapExtendScript, lit, prelude } from "../compose.js";
 import { findDocumentById, findFrameById } from "../script-helpers.js";
 import { ok } from "../errors.js";
@@ -84,11 +85,18 @@ export const duplicateFrameTool = defineTool<Input, Result>({
     "Duplicates a page item (text frame, image frame, rectangle, or line) with an optional millimeter offset from the original position. Returns the source frame ID, the new duplicate frame ID, and the frame type. Emits a new_frames delta for the duplicate.",
   inputSchema: InputSchema,
   async handler(input) {
-    const env = await runScriptWithResultFile<ScriptResult>({
-      language: "JavaScript",
-      scriptTemplate: wrapExtendScript(buildScriptBody(input)),
-      resultSchema: ScriptResultSchema,
-    });
+    const env = await sendMutateScript<Awaited<ReturnType<typeof runScriptWithResultFile<ScriptResult>>>>(
+      input.document_id,
+      () => buildScriptBody(input),
+      (body, tok, docId) => wrapExtendScript(body, { _mutateToken: tok, documentId: docId }),
+      (scriptTemplate) =>
+        runScriptWithResultFile<ScriptResult>({
+          language: "JavaScript",
+          scriptTemplate,
+          resultSchema: ScriptResultSchema,
+        }),
+      "duplicate_frame",
+    );
     if (!env.ok) return env;
     const r = env.result!;
     const frameType: FrameType = r.duplicate_type;
